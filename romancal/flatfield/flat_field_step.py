@@ -14,6 +14,9 @@ class FlatFieldStep(RomanStep):
     """Flat-field a science image using a flatfield reference image."""
 
     class_alias = "flat_field"
+    spec = """
+        include_var_flat = boolean(default=False) # include flat field variance
+    """  # noqa: E501
 
     reference_file_types = ["flat"]
 
@@ -40,6 +43,7 @@ class FlatFieldStep(RomanStep):
         output_model = flat_field.do_correction(
             input_model,
             reference_file_model,
+            include_var_flat=self.include_var_flat
         )
 
         # Close reference file

@@ -22,7 +22,7 @@ from romancal.flux import FluxStep
 def test_attributes(flux_step, attr, factor):
     """Test that the attribute has been scaled by the right factor"""
     original, result = flux_step
-    c_unit = 1.0 / LV2_UNITS
+    c_unit = 1.0
 
     # Handle difference between just a single image and a list.
     if isinstance(original, datamodels.ImageModel):
@@ -93,7 +93,7 @@ def image_model():
     image_model.var_rnoise = rng.normal(1, 0.05, size=shape).astype(np.float32)
     image_model.var_poisson = rng.poisson(1, size=shape).astype(np.float32)
     image_model.var_flat = rng.uniform(0, 1, size=shape).astype(np.float32)
-    image_model.meta.photometry.conversion_megajanskys = 2.0 * u.MJy / u.sr
+    image_model.meta.photometry.conversion_megajanskys = 2.0
 
     return image_model
 
@@ -112,6 +112,6 @@ def input_modellibrary(image_model):
     # Create and return a ModelLibrary
     image_model1 = image_model.copy()
     image_model2 = image_model.copy()
-    image_model2.meta.photometry.conversion_megajanskys = 0.5 * u.MJy / u.sr
+    image_model2.meta.photometry.conversion_megajanskys = 0.5
     container = ModelLibrary([image_model1, image_model2])
     return container

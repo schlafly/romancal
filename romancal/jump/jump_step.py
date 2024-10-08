@@ -53,10 +53,10 @@ class JumpStep(RomanStep):
 
         # Extract the needed info from the Roman Data Model
         meta = input_model.meta
-        r_data = input_model.data.value
+        r_data = input_model.data
         r_gdq = input_model.groupdq
         r_pdq = input_model.pixeldq
-        r_err = input_model.err.value
+        r_err = input_model.err
         result = input_model
 
         # If the ramp fitting jump detection is enabled, then skip this step

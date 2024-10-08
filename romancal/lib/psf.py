@@ -188,10 +188,10 @@ def fit_psf_to_image_model(
     image_model : `roman_datamodels.datamodels.ImageModel`
         Image datamodel. If ``image_model`` is supplied,
         ``data,error,dq`` should be `None`.
-    data : `astropy.units.Quantity`
+    data : `numpy.ndarray`
         Fit a PSF model to the rate image ``data``.
         If ``data,error,dq`` are supplied, ``image_model`` should be `None`.
-    error : `astropy.units.Quantity`
+    error : `numpy.ndarray`
         Uncertainties on fluxes in ``data``. Should be `None` if
         ``image_model`` is supplied.
     dq : `numpy.ndarray`
@@ -224,7 +224,7 @@ def fit_psf_to_image_model(
         Initial guesses for the ``y`` pixel coordinates of each source to fit.
     progress_bar : bool, optional
         Render a progress bar via photutils. Default is False.
-    error_lower_limit : `astropy.units.Quantity`, optional
+    error_lower_limit : float
         Since some synthetic images may have bright sources with very
         small statistical uncertainties, the ``error`` can be clipped at
         ``error_lower_limit`` to prevent over-confident fits.

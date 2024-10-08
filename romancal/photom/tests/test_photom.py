@@ -102,13 +102,9 @@ def test_no_photom_match():
     input_model.meta.instrument.optical_element = "F146"
 
     # Set bad values which would be overwritten by apply_photom
-    input_model.meta.photometry.pixelarea_steradians = -1.0 * u.sr
-    input_model.meta.photometry.conversion_megajanskys = (
-        -1.0 * u.megajansky / u.steradian
-    )
-    input_model.meta.photometry.conversion_microjanskys_uncertainty = (
-        -1.0 * u.microjansky / u.arcsecond**2
-    )
+    input_model.meta.photometry.pixelarea_steradians = -1.0
+    input_model.meta.photometry.conversion_megajanskys = -1.0
+    input_model.meta.photometry.conversion_microjanskys_uncertainty = -1.0
 
     with warnings.catch_warnings(record=True) as caught:
         # Look for now non existent F146 optical element
@@ -121,14 +117,14 @@ def test_no_photom_match():
         )
 
         # Assert that photom elements are not updated
-        assert output_model.meta.photometry.pixelarea_steradians == -1.0 * u.sr
+        assert output_model.meta.photometry.pixelarea_steradians == -1.0
         assert (
             output_model.meta.photometry.conversion_megajanskys
-            == -1.0 * u.megajansky / u.steradian
+            == -1.0
         )
         assert (
             output_model.meta.photometry.conversion_microjanskys_uncertainty
-            == -1.0 * u.microjansky / u.arcsecond**2
+            == -1.0
         )
 
 
@@ -148,63 +144,52 @@ def test_apply_photom1():
     output_model = photom.apply_photom(input_model, photom_model)
 
     # Set reference photometry
-    area_ster = 2.31307642258977e-14 * u.steradian
-    area_a2 = 0.000984102303070964 * u.arcsecond * u.arcsecond
+    area_ster = 2.31307642258977e-14
+    area_a2 = 0.000984102303070964
 
     # Tests for pixel areas
     assert np.isclose(
-        output_model.meta.photometry.pixelarea_steradians.value,
-        area_ster.value,
+        output_model.meta.photometry.pixelarea_steradians,
+        area_ster,
         atol=1.0e-7,
     )
-    assert output_model.meta.photometry.pixelarea_steradians.unit == area_ster.unit
     assert np.isclose(
-        output_model.meta.photometry.pixelarea_arcsecsq.value,
-        area_a2.value,
+        output_model.meta.photometry.pixelarea_arcsecsq,
+        area_a2,
         atol=1.0e-7,
     )
-    assert output_model.meta.photometry.pixelarea_arcsecsq.unit == area_a2.unit
 
     # Set reference photometry
-    phot_ster = 3.5 * u.megajansky / u.steradian
-    phot_a2 = phot_ster.to(u.microjansky / u.arcsecond**2)
+    phot_ster = 3.5
+    phot_a2 = (phot_ster * u.MJy / u.sr).to(u.microjansky / u.arcsecond**2).value
 
     # Tests for photometry
     assert np.isclose(
-        output_model.meta.photometry.conversion_megajanskys.value,
-        phot_ster.value,
+        output_model.meta.photometry.conversion_megajanskys,
+        phot_ster,
         atol=1.0e-7,
     )
-    assert output_model.meta.photometry.conversion_megajanskys.unit == phot_ster.unit
     assert np.isclose(
-        output_model.meta.photometry.conversion_microjanskys.value,
-        phot_a2.value,
+        output_model.meta.photometry.conversion_microjanskys,
+        phot_a2,
         atol=1.0e-7,
     )
-    assert output_model.meta.photometry.conversion_microjanskys.unit == phot_a2.unit
 
     # Set reference photometric uncertainty
-    muphot_ster = 0.175 * u.megajansky / u.steradian
-    muphot_a2 = muphot_ster.to(u.microjansky / u.arcsecond**2)
+    muphot_ster = 0.175
+    muphot_a2 = (muphot_ster  * u.megajansky / u.steradian).to(
+        u.microjansky / u.arcsecond**2).value
 
     # Tests for photometric uncertainty
     assert np.isclose(
-        output_model.meta.photometry.conversion_megajanskys_uncertainty.value,
-        muphot_ster.value,
+        output_model.meta.photometry.conversion_megajanskys_uncertainty,
+        muphot_ster,
         atol=1.0e-7,
-    )
-    assert (
-        output_model.meta.photometry.conversion_megajanskys_uncertainty.unit
-        == muphot_ster.unit
     )
     assert np.isclose(
-        output_model.meta.photometry.conversion_microjanskys_uncertainty.value,
-        muphot_a2.value,
+        output_model.meta.photometry.conversion_microjanskys_uncertainty,
+        muphot_a2,
         atol=1.0e-7,
-    )
-    assert (
-        output_model.meta.photometry.conversion_microjanskys_uncertainty.unit
-        == muphot_a2.unit
     )
 
 
@@ -287,21 +272,21 @@ def test_photom_step_interface_spectroscopic(instrument, exptype):
     wfi_image.meta.instrument.optical_element = "PRISM"
 
     # Set photometric values for spectroscopic data
-    wfi_image.meta.photometry.pixelarea_steradians = 2.31307642258977e-14 * u.steradian
+    wfi_image.meta.photometry.pixelarea_steradians = 2.31307642258977e-14
     wfi_image.meta.photometry.pixelarea_arcsecsq = (
-        0.000984102303070964 * u.arcsecond * u.arcsecond
+        0.000984102303070964
     )
     wfi_image.meta.photometry.conversion_megajanskys = (
-        -99999 * u.megajansky / u.steradian
+        -99999
     )
     wfi_image.meta.photometry.conversion_megajanskys_uncertainty = (
-        -99999 * u.megajansky / u.steradian
+        -99999
     )
     wfi_image.meta.photometry.conversion_microjanskys = (
-        -99999 * u.microjansky / u.arcsecond**2
+        -99999
     )
     wfi_image.meta.photometry.conversion_microjanskys_uncertainty = (
-        -99999 * u.microjansky / u.arcsecond**2
+        -99999
     )
 
     # Create input model

@@ -99,14 +99,6 @@ def apply_flux_correction(model):
     DATA = ("data", "err")
     VARIANCES = ("var_rnoise", "var_poisson", "var_flat")
 
-    if model.meta.cal_step["flux"] == "COMPLETE":
-        message = (
-            "Input data is already in flux units of MJy/sr."
-            "\nFlux correction already applied."
-        )
-        log.info(message)
-        return
-
     # Apply the correction.
     # The end goal in units is to have MJy/sr. The scale is in MJy/sr also.
     # Hence the extra factor of s/DN must be applied to cancel DN/s.

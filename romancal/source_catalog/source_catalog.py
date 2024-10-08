@@ -98,7 +98,6 @@ class RomanSourceCatalog:
         self.convolved_data = convolved_data
         self.aperture_params = aperture_params
         self.kernel_sigma = kernel_fwhm * gaussian_fwhm_to_sigma
-        self.flux_unit = flux_unit
         self.fit_psf = fit_psf
 
         self.sb_unit = "MJy/sr"
@@ -159,18 +158,14 @@ class RomanSourceCatalog:
         """
         pixel_area = self.model.meta.photometry.pixelarea_steradians
         if pixel_area < 0:
-            pixel_area = (self._pixel_scale**2).to(u.sr)
-        return pixel_area.value
+            pixel_area = (self._pixel_scale**2).to(u.sr).value
+        return pixel_area
 
     def convert_l2_to_sb(self):
         """
         Convert a level-2 image from units of DN/s to MJy/sr (surface
         brightness).
         """
-        if self.model.data.unit != self.l2_unit or self.model.err.unit != self.l2_unit:
-            raise ValueError(
-                f"data and err are expected to be in units of {self.l2_unit}"
-            )
 
         # the conversion in done in-place to avoid making copies of the data;
         # use a dictionary to set the value to avoid on-the-fly validation
@@ -180,15 +175,11 @@ class RomanSourceCatalog:
 
     def convert_sb_to_l2(self):
         """
-        Convert the data and error Quantity arrays from MJy/sr (surface
+        Convert the data and error arrays from MJy/sr (surface
         brightness) to DN/s (level-2 units).
 
         This is the inverse operation of `convert_l2_to_sb`.
         """
-        if self.model.data.unit != self.sb_unit or self.model.err.unit != self.sb_unit:
-            raise ValueError(
-                f"data and err are expected to be in units of {self.sb_unit}"
-            )
 
         # the conversion in done in-place to avoid making copies of the data;
         # use a dictionary to set the value to avoid on-the-fly validation
@@ -226,16 +217,16 @@ class RomanSourceCatalog:
 
     def convert_flux_to_abmag(self, flux, flux_err):
         """
-        Convert flux (and error) to AB magnitude (and error).
+        Convert flux (and error) from Jy to AB magnitude (and error).
 
         Parameters
         ----------
-        flux, flux_err : `~astropy.unit.Quantity`
+        flux, flux_err : `np.ndarray`
             The input flux and error arrays.
 
         Returns
         -------
-        abmag, abmag_err : `~astropy.ndarray`
+        abmag, abmag_err : `np.ndarray`
             The output AB magnitude and error arrays.
         """
         # ignore RunTimeWarning if flux or flux_err contains NaNs
@@ -690,7 +681,7 @@ class RomanSourceCatalog:
             for (i, j) in self._ci_ee_indices
         ]
         return [
-            getattr(self, flux1).value / getattr(self, flux2).value
+            getattr(self, flux1) / getattr(self, flux2)
             for flux1, flux2 in fluxes
         ]
 
@@ -1198,8 +1189,7 @@ class RomanSourceCatalog:
         self._update_metadata()
         catalog.meta.update(self.meta)
 
-        # convert QTable to Table to change Quantity columns to regular
-        # columns with units
+        # convert to Table to change columns to regular
         catalog = Table(catalog)
 
         # split SkyCoord columns into separate RA and Dec columns

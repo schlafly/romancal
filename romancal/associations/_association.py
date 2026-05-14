@@ -12,8 +12,8 @@ from stpipe.format_template import FormatTemplate
 
 from . import __version__
 from .exceptions import AssociationNotValidError
-from .lib.constraint import Constraint, meets_conditions
-from .lib.ioregistry import IORegistry
+from .lib._constraint import Constraint, meets_conditions
+from .lib._ioregistry import IORegistry
 
 __all__ = ["Association"]
 
@@ -528,7 +528,7 @@ def finalize(asns):
 
     .. code-block:: python
 
-       from romancal.associations.association import finalize as generic_finalize
+       from romancal.associations._association import finalize as generic_finalize
        RegistryMarker.callback('finalize')(generic_finalize)
     """
     finalized_asns = list(

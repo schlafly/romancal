@@ -12,12 +12,12 @@ from typing import TYPE_CHECKING
 from stpipe.format_template import FormatTemplate
 
 from romancal.associations import libpath
-from romancal.associations.association import Association
+from romancal.associations._association import Association
 from romancal.associations.exceptions import AssociationNotValidError
-from romancal.associations.lib.acid import ACID
-from romancal.associations.lib.constraint import Constraint, SimpleConstraint
-from romancal.associations.lib.counter import Counter
-from romancal.associations.lib.dms_base import (
+from romancal.associations.lib._acid import ACID
+from romancal.associations.lib._constraint import Constraint, SimpleConstraint
+from romancal.associations.lib._counter import Counter
+from romancal.associations.lib._dms_base import (
     _EMPTY,
     IMAGE2_NONSCIENCE_EXP_TYPES,
     IMAGE2_SCIENCE_EXP_TYPES,
@@ -26,15 +26,15 @@ from romancal.associations.lib.dms_base import (
     DMSAttrConstraint,
     DMSBaseMixin,
 )
-from romancal.associations.lib.keyvalue_registry import KeyValueRegistryError
-from romancal.associations.lib.member import Member
-from romancal.associations.lib.process_list import ProcessList
-from romancal.associations.lib.product_utils import (
+from romancal.associations.lib._keyvalue_registry import KeyValueRegistryError
+from romancal.associations.lib._member import Member
+from romancal.associations.lib._process_list import ProcessList
+from romancal.associations.lib._product_utils import (
     prune_duplicate_associations,
     prune_duplicate_products,
 )
-from romancal.associations.lib.utilities import evaluate, is_iterable
-from romancal.associations.registry import RegistryMarker
+from romancal.associations.lib._utilities import evaluate, is_iterable
+from romancal.associations._registry import RegistryMarker
 
 if TYPE_CHECKING:
     from typing import ClassVar

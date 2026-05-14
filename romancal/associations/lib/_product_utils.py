@@ -5,8 +5,8 @@ import logging
 import warnings
 from collections import Counter, defaultdict
 
-from .. import config
-from .diff import compare_product_membership
+from .. import _config as config
+from ._diff import compare_product_membership
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())

@@ -1,14 +1,14 @@
 """Association attributes common to DMS-based Rules"""
 
 from romancal.associations.exceptions import AssociationNotValidError
-from romancal.associations.lib.acid import ACIDMixin
-from romancal.associations.lib.constraint import (
+from romancal.associations.lib._acid import ACIDMixin
+from romancal.associations.lib._constraint import (
     AttrConstraint,
     Constraint,
     SimpleConstraint,
 )
-from romancal.associations.lib.counter import Counter
-from romancal.associations.lib.utilities import getattr_from_list
+from romancal.associations.lib._counter import Counter
+from romancal.associations.lib._utilities import getattr_from_list
 
 __all__ = ["Constraint_TargetAcq", "Constraint_WFSC", "DMSBaseMixin"]
 
@@ -18,25 +18,6 @@ PRODUCT_NAME_DEFAULT = "undefined"
 # DMS file name templates
 _ASN_NAME_TEMPLATE_STAMP = "r{program}-{acid}_{stamp}_{type}_{sequence:03d}_asn"
 _ASN_NAME_TEMPLATE = "r{program}-{acid}_{type}_{sequence:03d}_asn"
-
-# Acquisition and Confirmation images
-ACQ_EXP_TYPES = (
-    "nrc_taconfirm",
-    "nrc_tacq",
-)
-
-# Exposure EXP_TYPE to Association EXPTYPE mapping
-EXPTYPE_MAP = {
-    "nrc_dark": "dark",
-    "nrc_flat": "flat",
-    "nrc_focus": "engineering",
-    "nrc_led": "engineering",
-    "nrc_tacq": "target_acquisition",
-    "nrc_taconfirm": "target_acquisition",
-}
-
-# Coronographic exposures
-CORON_EXP_TYPES = ["mir_4qpm", "mir_lyot", "nrc_coron"]
 
 # Roman WFI detectors
 WFI_DETECTORS = [
@@ -68,7 +49,6 @@ IMAGE2_SCIENCE_EXP_TYPES = [
 IMAGE2_NONSCIENCE_EXP_TYPES = [
     "wfi_focus",
 ]
-IMAGE2_NONSCIENCE_EXP_TYPES.extend(ACQ_EXP_TYPES)
 
 SPEC2_SCIENCE_EXP_TYPES = [
     "wfi_grism",
@@ -669,7 +649,7 @@ def get_exposure_type(item, default="science", association=None):
     except KeyError as err:
         raise LookupError("Exposure type cannot be determined") from err
 
-    result = EXPTYPE_MAP.get(exp_type, default)
+    result = default
 
     if result is None:
         raise LookupError("Cannot determine exposure type")

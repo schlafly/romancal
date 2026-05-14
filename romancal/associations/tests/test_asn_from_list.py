@@ -2,7 +2,9 @@
 
 import pytest
 
-from romancal.associations import Association, AssociationRegistry, load_asn
+from romancal.associations import load_asn
+from romancal.associations._association import Association
+from romancal.associations._registry import AssociationRegistry
 from romancal.associations.asn_from_list import _cli, asn_from_list
 from romancal.associations.exceptions import AssociationNotValidError
 

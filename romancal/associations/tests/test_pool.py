@@ -1,4 +1,4 @@
-from romancal.associations import AssociationPool
+from romancal.associations._pool import AssociationPool
 from romancal.associations.tests.helpers import t_path
 
 POOL_FILE = t_path("data/jw93060_20150312T160130_pool.csv")

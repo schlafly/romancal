@@ -1,20 +1,20 @@
-"""Association Generator
+"""Roman associations
 
-The Association Generator takes a list of items, an Association Pool, and
-creates sub-lists of those items depending on each item's attributes. How the
-sub-lists are created is defined by Association Rules.
+Public API: load_asn, AssociationError, AssociationNotValidError.
 
-For more, see the :ref:`documentation overview <asn-overview>`.
+The Roman-specific mosaic tools (skycell_asn, multiband_asn,
+mk_skycell_list, mk_skycell_asn_from_skycell_list, asn_from_list) are
+importable directly from their submodules.
 
+The remaining infrastructure (association generation engine, pool, registry,
+rules) is internal and will be removed in a future release.
 """
 
-# flake8: noqa: F401, F403
+# flake8: noqa: F401
 
-# Take version from the upstream package
 from .. import __version__
 
 
-# Utility
 def libpath(filepath):
     """Return the full path to the module library."""
     from os.path import abspath, dirname, join
@@ -22,12 +22,6 @@ def libpath(filepath):
     return join(dirname(abspath(__file__)), "lib", filepath)
 
 
-from .association import *
-from .association_io import *
-from .exceptions import *
-from .generate import *
-from .lib.process_list import *
+from . import _association_io  # registers JSON/YAML I/O handlers as a side effect
+from .exceptions import AssociationError, AssociationNotValidError
 from .load_asn import load_asn
-from .main import *
-from .pool import *
-from .registry import *

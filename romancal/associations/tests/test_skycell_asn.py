@@ -125,7 +125,7 @@ def test_create_metadata(monkeypatch):
 
     dummy_asn_obj = DummyASN()
     monkeypatch.setattr(
-        skycell_asn.asn_from_list,
+        skycell_asn,
         "asn_from_list",
         lambda members, **kwargs: dummy_asn_obj,
     )

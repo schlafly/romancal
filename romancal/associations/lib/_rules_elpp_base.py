@@ -41,7 +41,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ASN_SCHEMA",
-    "AsnMixin_AuxData",
     "AsnMixin_Lv2FOV",
     "AsnMixin_Lv2GBTDSfull",
     "AsnMixin_Lv2GBTDSpass",
@@ -935,32 +934,6 @@ class Constraint_Target(DMSAttrConstraint):
 # -----------
 # Base Mixins
 # -----------
-class AsnMixin_AuxData:
-    """Process special and non-science exposures as science."""
-
-    def get_exposure_type(self, item, default="science"):
-        """Override to force exposure type to always be science
-        Parameters
-        ----------
-        item : dict
-            The pool entry for which the exposure type is determined
-        default : str or None
-            The default exposure type.
-            If None, routine will raise LookupError
-        Returns
-        -------
-        exposure_type : 'science'
-            Returns as science for most Exposures
-        exposure_type : 'target_acquisition'
-            Returns target_acquisition for mir_tacq
-        """
-        NEVER_CHANGE = ["target_acquisition"]
-        exp_type = super().get_exposure_type(item, default=default)
-        if exp_type in NEVER_CHANGE:
-            return exp_type
-        return "science"
-
-
 class AsnMixin_Science(DMS_ELPP_Base):
     """Basic science constraints"""
 

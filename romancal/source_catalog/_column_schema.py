@@ -50,6 +50,14 @@ class CatalogSchema:
         return aper_colnames
 
     @lazyproperty
+    def psf_colnames(self):
+        """
+        An ordered list of the psf flux column names.
+        """
+        psf_colnames = ["psf_flux", "psf_flux_err"]
+        return psf_colnames
+
+    @lazyproperty
     def flux_colnames(self):
         """
         An ordered list of the flux column names.
@@ -63,7 +71,8 @@ class CatalogSchema:
             "kron_abmag",
             "kron_abmag_err",
         ]
-        psf_colnames = ["psf_flux", "psf_flux_err"]
+        #psf_colnames = ["psf_flux", "psf_flux_err"]
+        psf_colnames = self.psf_colnames
         # PSF-matched catalogs omit abmag columns (redundant, since they
         # can be derived from flux via -2.5*log10; we provide at least
         # one magnitude per source but not all variants) and PSF columns
@@ -80,7 +89,7 @@ class CatalogSchema:
         if self.cat_type in ("prompt", "forced_full", "dr_band"):
             flux_colnames = list(self.aper_colnames)
             if self.fit_psf:
-                flux_colnames.extend(psf_colnames)
+                flux_colnames.extend(self.psf_colnames)
             flux_colnames.extend(other_colnames)
 
         elif self.cat_type == "psf_matched":
@@ -246,7 +255,8 @@ class CatalogSchema:
                 colnames.extend(psf_flags_colnames)
             colnames.extend(dust_colnames)
 
-        elif self.cat_type in ("forced_det", "forced_photometry"):
+        #elif self.cat_type in ("forced_det", "forced_photometry"):
+        elif self.cat_type in ("forced_det"):
             #pdb.set_trace()
             colnames = ["label"]  # needed to join the forced catalogs
             colnames.extend(base_colnames)
@@ -255,16 +265,18 @@ class CatalogSchema:
             colnames.extend(shape_colnames)
             colnames.extend(nn_colnames)
 
-        #elif self.cat_type == "forced_photometry":
-        #    colnames = ["label"]  # needed to join the forced catalogs
-        #    colnames.extend(base_colnames)
-        #    colnames.extend(skybest_colnames)
-        #    colnames.extend(sky_colnames)
-        #    #colnames.extend(self.flux_colnames)
-        #    #colnames.extend(othershape_colnames)
-        #    colnames.extend(shape_colnames)
-        #    colnames.extend(nn_colnames)
-        #    pdb.set_trace()
+
+        elif self.cat_type in ("forced_photometry"):
+            #pdb.set_trace()
+            #psf_colnames = ["psf_flux", "psf_flux_err"]
+            colnames = ["label"]  # needed to join the forced catalogs
+            colnames.extend(base_colnames)
+            colnames.extend(self.psf_colnames)
+            colnames.extend(self.aper_colnames)
+            colnames.extend(skybest_colnames)
+            colnames.extend(sky_colnames)
+            colnames.extend(shape_colnames)
+            colnames.extend(nn_colnames)
 
         elif self.cat_type == "dr_det":
             colnames = []

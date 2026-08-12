@@ -488,28 +488,57 @@ class SourceCatalogStep(RomanStep):
                 fit_psf=self.fit_psf,
                 psf_model=psf_model,
                 mask=mask,
-                cat_type="forced_full",
+                cat_type="forced_photometry",
                 ee_spline=ee_spline,
             )
-            forced_cat = forced_catobj.catalog
+            #forced_cat = forced_catobj.catalog
 
             # merge the forced photometry and prompt catalogs
             forced_cat = forced_catobj.catalog
+            #pdb.set_trace()
             forced_cat.meta = None  # redundant with cat.meta
             # remove some duplicate/unneeded columns from the forced catalog
             log.info("Removing duplicate/unneeded columns from the forced catalog")
-            cols_to_remove = ['forced_x_psf', 'forced_x_psf_err', 'forced_y_psf', 'forced_y_psf_err',
-                              'forced_ra_psf', 'forced_dec_psf', 'forced_ra_psf_err', 'forced_dec_psf_err', 'ra', 'dec', 'ra_centroid', 
-                              'dec_centroid', 'ra_centroid_err', 'dec_centroid_err', 'ra_centroid_win', 'dec_centroid_win', 
-                              'ra_centroid_win_err', 'dec_centroid_win_err', 'cxx', 'cxy', 'cyy', 'bbox_xmin', 'bbox_xmax', 'bbox_ymin',
-                              'bbox_ymax', 'image_flags', 'segment_area', 'semimajor', 'semiminor', 'fwhm', 'ellipticity', 'orientation_pix',
-                              'orientation_sky', 'dust_ebv', 'nn_label', 'nn_distance', 'flagged_spatial_id', 'x_centroid', 'y_centroid',
-                              'x_centroid_err', 'y_centroid_err', 'x_centroid_win', 'y_centroid_win', 'x_centroid_win_err',
-                              'y_centroid_win_err', 'kron_radius']
+            forced_cols_to_remove = ['forced_ra_centroid', 'forced_dec_centroid', 'forced_ra_centroid_err',
+                                'forced_dec_centroid_err', 'forced_semimajor', 'forced_semiminor',
+                                'forced_fwhm', 'forced_ellipticity', 'forced_orientation_pix',
+                                'forced_orientation_sky', 'forced_cxx', 'forced_cxy', 'forced_cyy',
+                                'forced_kron_radius', 'forced_nn_label', 'forced_nn_distance',
+                                'flagged_spatial_id', 'x_centroid', 'y_centroid', 'x_centroid_err',
+                                'y_centroid_err', 'x_centroid_win', 'y_centroid_win',
+                                'x_centroid_win_err', 'y_centroid_win_err', 'ra_centroid',
+                                'dec_centroid', 'ra_centroid_err', 'dec_centroid_err',
+                                'ra_centroid_win', 'dec_centroid_win', 'ra_centroid_win_err',
+                                'dec_centroid_win_err', 'bbox_xmin', 'bbox_xmax', 'bbox_ymin',
+                                'bbox_ymax', 'segment_area', 'semimajor', 'semiminor', 'fwhm',
+                                'ellipticity', 'orientation_pix', 'orientation_sky', 'cxx', 'cxy',
+                                'cyy', 'kron_radius', 'nn_label', 'nn_distance', 'sharpness',
+                                'roundness1', 'is_extended', 'fluxfrac_radius_50', 'segment_flux',
+                                'segment_flux_err', 'kron_flux', 'kron_flux_err', 'kron_abmag',
+                                'kron_abmag_err', 'dust_ebv']
+            extra_cols_to_remove = ['ra','dec','x_centroid', 'y_centroid', 
+                                    'x_centroid_win', 'y_centroid_win', 'x_centroid_win_err',
+                                    'y_centroid_win_err', 'kron_radius', 'nn_label', 'nn_distance',
+                                    'segment_flux', 'segment_flux_err', 'kron_radius', 'kron_flux', 'kron_flux_err',
+                                    'is_extended', 'sharpness', 'roundness1', 'fluxfrac_radius_50',
+                                    'bbox_xmin', 'bbox_xmax', 'bbox_ymin', 'bbox_ymax', 'segment_area', 'segment_flux',
+                                    'forced_segment_flux', 'forced_segment_flux_err', 'forced_kron_flux',
+                                    'forced_kron_flux_err','kron_abmag', 'kron_abmag_err', 'dust_ebv',
+                                    'forced_x_psf', 'forced_y_psf', 'forced_x_psf_err', 'forced_y_psf_err', 'forced_is_extended',
+                                    'forced_fluxfrac_radius_50', 'forced_ra_psf', 'forced_dec_psf', 'forced_ra_psf_err', 'forced_dec_psf_err',
+                                    'forced_sharpness', 'forced_roundness1', 'forced_kron_abmag',
+                                    'forced_kron_abmag_err', 'forced_warning_flags', 'forced_psf_flags', 'forced_psf_gof', 'image_flags']
+            cols_to_remove = forced_cols_to_remove + extra_cols_to_remove
+            #pdb.set_trace()
             for item in cols_to_remove:
-                forced_cat.remove_column(item)
+                if item in forced_cat.colnames:
+                    forced_cat.remove_column(item)
             cat = join(forced_cat, prompt_cat, keys="label", join_type="outer")
-
+            cols_to_remove = forced_cols_to_remove
+            for item in cols_to_remove:
+                if item in cat.colnames:
+                    cat.remove_column(item)
+ 
         log.info("Creating source catalog")
 
         if self.forced_segmentation:

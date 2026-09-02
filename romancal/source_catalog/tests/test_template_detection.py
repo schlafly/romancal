@@ -146,9 +146,9 @@ def test_masked_stripe_does_not_split_a_segment(wide_image):
     assert segment_img is not None
     labels = np.asarray(segment_img.data)
 
-    label = labels[380, 150]
-    assert label > 0  # the stripe is inside the segment, not a hole
-    _, n_pieces = scipy.ndimage.label(
-        labels == label, structure=np.ones((3, 3), dtype=bool)
-    )
-    assert n_pieces == 1
+    # the masked pixels themselves are not claimed by any source ...
+    assert labels[378, 150] == 0
+    # ... but the source is one label, not two, on either side of the stripe
+    above, below = labels[372, 150], labels[389, 150]
+    assert above > 0
+    assert above == below

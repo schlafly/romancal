@@ -255,6 +255,10 @@ def _assign_segments(deblended, max_image, template_at_pixel, snr_images,
     candidates.sort(key=lambda item: -item[0])
 
     merged = np.zeros(shape, dtype=np.int32)
+    # ``claimed`` tracks every pixel a source has taken, masked or not, so a
+    # later source cannot dilate into a brighter one's masked core.  Only the
+    # unmasked pixels are painted into the segmentation image itself.
+    claimed = np.zeros(shape, dtype=bool)
     template_index = []
     significance = []
     n_label = 0
@@ -292,7 +296,7 @@ def _assign_segments(deblended, max_image, template_at_pixel, snr_images,
             local = scipy.ndimage.binary_dilation(
                 local, structure=structure, iterations=int(dilate)
             )
-        local &= merged[window] == 0
+        local &= ~claimed[window]
 
         if local.any():
             # keep only the piece containing the peak; intersecting with a
@@ -309,13 +313,18 @@ def _assign_segments(deblended, max_image, template_at_pixel, snr_images,
                 local = pieces == keep
                 n_trimmed += 1
 
+        # Connectivity is judged on the mask-inclusive footprint above, so a
+        # masked stripe through a source does not split it; membership is the
+        # unmasked pixels, so the segmentation image never claims a pixel the
+        # photometry cannot use.
         usable = local if mask is None else local & ~mask[window]
         if int(usable.sum()) < _MIN_SEGMENT_PIXELS:
             n_dropped += 1
             continue
 
         n_label += 1
-        merged[window][local] = n_label
+        claimed[window] |= local
+        merged[window][usable] = n_label
         template_index.append(index)
         significance.append(sig)
 

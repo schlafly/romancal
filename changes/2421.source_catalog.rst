@@ -1,17 +1,4 @@
-Replace single-kernel source detection with a bank of matched filters.  The
-image is convolved with templates spanning a range of source sizes, each
-convolution is turned into a significance image, and the per-pixel maximum
-over templates becomes a single detection image on which sources are found
-and deblended once.  The templates are built to sum to zero, so none of them
-responds to a smooth background and a compact source sitting on a large
-galaxy's light is measured by its prominence above that light rather than by
-the light itself.  ``snr_threshold`` now means the peak significance in
-sigma, the same for every template, and ``npixels`` is the minimum size of a
-deblended child.  Two columns are added to the catalog: ``det_template``,
-which template detected each source, and ``det_significance``, its peak
-significance.  The bad-pixel mask is now passed to the background estimator
-as ``mask`` rather than ``coverage_mask``, which had left the background RMS,
-and so the detection threshold, undefined at masked pixels -- most of which
-are the saturated cores of the brightest sources.  A ``max_sources`` option caps the catalog at the most
-significant sources, guarding against the time the photometry would take
-on a very crowded field.
+Overhaul source detection in the SourceCatalogStep, broadly aiming to
+improve depth while not damaging purity.  The new approach blends
+matched filter detection using a range of different sized kernels
+and watershed deblending.

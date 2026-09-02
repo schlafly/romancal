@@ -19,7 +19,6 @@ from romancal.source_catalog._template_detection import (
     make_segmentation_image_template,
 )
 
-
 @pytest.fixture
 def wide_image():
     """A frame large enough for the whole template bank, with sources
@@ -58,13 +57,13 @@ def test_lowered_kernel_is_zero_sum():
     )
     assert np.isclose(plain.sum(), 1.0)
     assert abs(lowered.sum()) < 1e-8
-    assert lowered.shape[0] > plain.shape[0]  # room for the negative surround
-    # the cost is small: the norm sets the noise, and it is barely reduced
+    assert lowered.shape[0] > plain.shape[0]  # room for the background subtraction kernel
+    # the SNR loss is small
     assert np.sqrt((lowered**2).sum()) / np.sqrt((plain**2).sum()) > 0.9
 
 
 def test_significance_defined_on_masked_pixels():
-    """The matched filter needs weight *under* the kernel, not at the centre."""
+    """The matched filter is well defined in small masked regions."""
     data = np.zeros((60, 60), dtype=np.float32)
     err = np.ones_like(data)
     mask = np.zeros(data.shape, dtype=bool)
@@ -76,13 +75,13 @@ def test_significance_defined_on_masked_pixels():
 
 
 def test_templates_larger_than_image_are_skipped(wide_image):
-    """Kernels wider than the frame would be all boundary."""
+    """Too-large kernels for an image are skipped."""
     data, err = wide_image
     small = data[:120, :120].copy(), err[:120, :120].copy()
     segment_img, _, template_index, _ = _detect(*small)
     if segment_img is not None:
         # only the PSF template fits inside a 120 px frame
-        assert set(np.unique(template_index)) <= {0}
+        assert np.all(template_index == 0)
 
 
 def test_detects_sources_of_each_size(wide_image):
@@ -104,8 +103,15 @@ def test_detects_sources_of_each_size(wide_image):
     assert point < extended
 
 
-def test_segments_are_contiguous_and_disjoint(wide_image):
-    """Every label is a single connected piece and no pixel is shared."""
+def test_segments_are_contiguous(wide_image):
+    """Every label is a single connected piece.
+
+    Not automatic: narrowing a catchment to its template's footprint, and
+    losing pixels to a brighter neighbour, can both split it into islands,
+    and a label whose pixels lie in two places has its centroid in the gap
+    between them.  `_assign_segments` trims each source to the piece holding
+    its peak, and this guards that.
+    """
     import scipy.ndimage
 
     data, err = wide_image

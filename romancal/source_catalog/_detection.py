@@ -118,9 +118,13 @@ def make_gaussian_kernel(fwhm, lower_scale=0.0, size_factor=3,
         i.e. the matched filter for a source plus an unknown background
         varying on ``lower_scale`` times the template's own scale.  A
         zero-sum kernel gives no response to a flat background, so a
-        compact source riding on a larger object's light keeps only its
-        prominence above that light.  The box is enlarged to hold the
-        resulting negative surround, capped at ``max_size``.
+        compact source riding on a larger object's light keeps only the
+        smaller source's addition over the background.
+        The kernel size is enlarged to hold the
+        resulting negative surround, capped at ``max_size``.  Subtracting a
+        smoothed copy rather than a flat mean over the box separates the
+        background scale from the box size, and changes smoothly as a bright
+        neighbour enters the subtraction region.
     max_size : int, optional
         Largest kernel size, in pixels.
 
@@ -148,20 +152,17 @@ def make_gaussian_kernel(fwhm, lower_scale=0.0, size_factor=3,
 
 def ivw_convolve(data, wht, kernel, mask=None):
     """
-    Inverse-variance-weighted convolution: the matched-filter building block.
+    Inverse-variance-weighted convolution of data with uncertainties given a template.
 
-    Returns the arrays that must be accumulated (across bands, if there is
-    more than one) before the signal-to-noise ratio can be formed.  The
-    weighted form ``conv(data * wht, k) / sqrt(conv(wht, k^2))`` is the
-    maximum-likelihood amplitude of ``k`` divided by its uncertainty, for
-    spatially varying Gaussian noise.  Unlike
-    ``conv(data, k) / sqrt(conv(var, k^2))`` it down-weights noisy pixels
-    independently in the numerator and the denominator, so one high-variance
-    pixel cannot inflate the denominator across a whole footprint.
+    Construction of a significance image for a matched filter requires
+    a signal and uncertainty image for each template.  This function computes these
+    as well as an unweighted convolution of the data and the kernel.
+    The ratio ``num / sqrt(denom2)`` returned by this function is the
+    maximum-likelihood amplitude of a template kernel divided by its uncertainty,
+    given some Gaussian noise.
 
-    Because masked pixels enter with zero weight rather than being excluded,
-    the result is defined wherever *any* weight falls under the kernel --
-    including at masked pixels themselves.
+    Masked pixels enter with zero weight and are not excluded,
+    so the result is defined on masked pixels.
 
     Parameters
     ----------
@@ -183,17 +184,17 @@ def ivw_convolve(data, wht, kernel, mask=None):
     conv_flux : 2D `numpy.ndarray`
         ``conv(data, kernel)``, unweighted; for centroids and moments.
     """
+    # ``nan_treatment`` concerns NaNs in the data, not the kernel.  Any NaN is
+    # already zeroed through ``mask``, so filling and interpolating are
+    # equivalent here, and interpolating is undefined for a zero-sum kernel
+    # because such a kernel cannot be normalized.
     kwargs = {
         "normalize_kernel": False,
         "allow_huge": True,
         "boundary": "fill",
         "fill_value": 0.0,
+        "nan_treatment": "fill",
     }
-    if abs(float(kernel.sum())) < 1e-8:
-        # a zero-sum kernel cannot be normalized, so astropy's default
-        # nan_treatment="interpolate" is undefined for it; NaNs are already
-        # zeroed through ``mask``, so filling them is equivalent
-        kwargs["nan_treatment"] = "fill"
     if mask is not None:
         data = np.where(mask, 0.0, data)
         wht = np.where(mask, 0.0, wht)
@@ -210,6 +211,11 @@ def ivw_convolve(data, wht, kernel, mask=None):
 def snr_from_ivw(num, denom2):
     """
     Form a signal-to-noise ratio image from accumulated `ivw_convolve` arrays.
+
+    Kept separate from `ivw_convolve` because the arrays must be summed over
+    bands before the ratio is taken.  ``denom2`` is mathematically
+    non-negative, but the FFT returns small negative values where it should
+    return zero, so it is clamped before the square root.
 
     Parameters
     ----------

@@ -2,18 +2,26 @@
 Module to detect sources with a bank of matched filters.
 
 The image is convolved with several templates spanning a range of source
-sizes.  Each convolution is turned into a significance image -- the
-maximum-likelihood amplitude of that template divided by its uncertainty --
+sizes.  Each convolution is turned into a significance image, the
+maximum-likelihood amplitude of that template divided by its uncertainty,
 and the per-pixel maximum over templates becomes a single detection image on
-which sources are found and deblended exactly once.
+which sources are found via watershed and deblended.  This enables
+the deblending and sounce detection to happen on a single image, reducing
+challenges surrounding multiply detecting the same sources with different kernels.
 
-Two properties make this work.  Every local maximum of the maximum image is a
-local maximum of whichever template attains it there (if template ``k`` wins
-at ``x*`` then for nearby ``x``, ``D_k(x) <= M(x) <= M(x*) = D_k(x*)``), so
-taking the maximum invents no peaks.  And because the templates are
-"lowered" -- built to sum to zero -- none of them responds to a smooth
-background, so a compact source sitting on a large galaxy's light is measured
-by its prominence above that light rather than by the light itself.
+However, for segment definition purposes we want to compute segments going
+out to some rough isophotal limit that's appropriate for the source in question;
+we do not want to convolve a bright star with a large galaxy template and
+construct a segment that goes out until that large galaxy cross-correlation
+has fallen off significantly.  Because each source's peak in the significance
+image corresponds to a peak from a specific template, we can use the max
+significance image to define a parent set of segments and then intersect
+that with the specific segment that is specific for the kind of template
+that generated the peak.  So PSFs end up going out to isophotes appropriate
+for PSFs and large galaxies go deeper.
+
+Additionally we use 'lowered' templates that sum to zero to prevent
+small kernels from firing when they ride on a background of a large source.
 """
 
 import logging
@@ -26,7 +34,6 @@ from romancal.source_catalog._background import RomanBackground
 from romancal.source_catalog._detection import (
     ivw_convolve,
     make_gaussian_kernel,
-    make_segmentation_image,
     snr_from_ivw,
 )
 
@@ -35,7 +42,7 @@ log.setLevel(logging.DEBUG)
 
 # Template bank.  The first entry is the PSF and is sized by the step's
 # ``kernel_fwhm``; the rest are exponential discs of half-light radius 4, 16
-# and 64 pixels, converted to the equivalent Gaussian FWHM (FWHM ~ 1.68 r_e).
+# and 64 pixels, converted to the equivalent Gaussian FWHM (FWHM ~ 1.678 r_e).
 # The spacing is logarithmic so that a source of any size is within a factor
 # of two of some template.
 _TEMPLATE_RE = (4.0, 16.0, 64.0)  # exponential half-light radii, pixels
@@ -45,26 +52,30 @@ _RE_TO_FWHM = 1.678
 _SIZE_FACTOR = 4
 
 # Background scale for the lowered templates, in units of the template FWHM.
-# The background a template must ignore is set by the *contaminant* -- a
-# galaxy's extended light -- not by the template, so this is deliberately
-# large: subtracting on the template's own scale makes a marginally resolved
-# source its own background and destroys it (the PSF template keeps 94% of a
-# point source but only 55% of a source of FWHM 6).  At 10 the whole bank
-# loses about 1.6% of its norm.
+# These effectively subtract background light on a particular scale,
+# which needs to be significantly larger than the template in order to not
+# significantly reduce the template's SNR, but small enough to subtract out
+# potentially contaminating light from larger sources, to avoid detecting
+# noise fluctuations in the wings of extended sources.
+# At lower_scale = 10 the typical SNRs are down by a couple percent
+# compared with unlowered templates.
 _LOWER_SCALE = 10.0
 
-# Deblending contrast for the maximum image.
+# Deblending contrast for the maximum image: the fraction of a parent's flux a
+# peak must hold to be split off.  Note this differs from the 1e-4 that
+# ``make_segmentation_image`` uses for its own deblending.
 _DEBLEND_CONTRAST = 0.001
 
-# Grow each final segment by this many pixels.  At a threshold of 5 sigma a
-# source near the limit covers a single pixel, and moments need its
-# neighbours; one dilation turns that into a 3x3.
+# Grow each final segment by this many pixels.  We are willing to detect
+# sources that are 5 sigma in a single pixel, but want to then grow those segments
+# to be at least large enough to compute a moment.  We dilate so that isolated
+# single pixels grow to 3x3 segments.
 _SEGMENT_DILATE = 1
 
 # Smallest final segment to keep, counted in pixels the photometry can
-# actually use.  Dilation grows a lone pixel to a full 3x3, so 9 means "the
-# source must retain a complete, unmasked, unclaimed neighbourhood".  Fewer
-# pixels give degenerate second moments and a non-finite centroid.
+# actually use.  Dilation grows a lone pixel to a full 3x3, so for faint isolated
+# sources this means the source must retain its 3x3 neighborhood after
+# removing masked pixels and pixels assigned to neighbors.
 _MIN_SEGMENT_PIXELS = 9
 
 
@@ -93,11 +104,11 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
     snr_images : list of 2D `numpy.ndarray`
         One matched-filter SNR image per template.
     conv_psf : 2D `numpy.ndarray`
-        The PSF-convolved flux image, for centroids and moments.  This uses
-        the *unlowered* PSF kernel: a zero-sum kernel produces a negative
-        surround that makes moments meaningless.
+        The PSF-convolved flux image, for centroids and moments.
+        Note that the snr_images use a lowered kernel while
+        this uses the corresponding unlowered kernel.
     """
-    good = np.ones(data.shape, dtype=bool) if mask is None else ~mask
+    good = ~mask if mask is not None else np.ones(data.shape, dtype=bool)
     wht = np.where(good, 1.0 / np.where(good, err, 1.0) ** 2, 0.0)
 
     snr_images = []
@@ -106,11 +117,9 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
             fwhm, lower_scale=_LOWER_SCALE, size_factor=_SIZE_FACTOR
         )
         if kernel.shape[0] > min(data.shape):
-            # a kernel wider than the image is all boundary: the lowered
-            # kernel's negative surround falls off the edge, so it no longer
-            # sums to zero over the data and responds to the background.
-            # Real images are far larger than the bank, but cutouts and test
-            # frames are not.
+            # kernel plus its background-subtraction surround is wider than
+            # the image, so the kernel is all boundary.  Triggered by cutouts
+            # and by test frames; real images are far larger than the bank.
             log.info(
                 f"Skipping template FWHM={fwhm:.1f} px: kernel "
                 f"{kernel.shape[0]} px exceeds the image"
@@ -121,12 +130,11 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
         log.info(f"Template FWHM={fwhm:.1f} px: kernel {kernel.shape[0]} px")
 
     if not snr_images:
-        msg = (
-            f"No template fits within an image of shape {data.shape}; the "
-            f"smallest kernel is "
-            f"{make_gaussian_kernel(kernel_fwhm, lower_scale=_LOWER_SCALE, size_factor=_SIZE_FACTOR).shape[0]} px"
+        log.warning(
+            f"No template fits within an image of shape {data.shape}; "
+            "no sources can be detected"
         )
-        raise ValueError(msg)
+        return [], None
 
     psf_kernel = make_gaussian_kernel(kernel_fwhm, size_factor=_SIZE_FACTOR)
     _, _, conv_psf = ivw_convolve(data, wht, psf_kernel, mask=mask)
@@ -136,42 +144,85 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
 
 def _max_detection_image(snr_images, thresholds):
     """
-    Per-pixel maximum over templates, each in units of its own threshold.
+    Per-pixel maximum over templates, after dividing by template-dependent threshold.
 
-    Dividing by the threshold makes the templates comparable, so ``M > 1``
-    means "some template detects this pixel" and the winning template is the
-    one with the highest significance.
+    Thresholds can account for the fact that usually larger templates have
+    SNR images that are larger than 1, due to leakage of signal from sources into
+    the background images and potentially other sources of correlated noise not
+    accounted by the uncertainty images.
 
     Returns
     -------
     max_image : 2D `numpy.ndarray`
         The maximum image.
-    winner : 2D `numpy.ndarray`
+    template : 2D `numpy.ndarray`
         Index of the template attaining the maximum at each pixel.
     """
     max_image = None
-    winner = None
+    template = None
     for index, (snr, threshold) in enumerate(zip(snr_images, thresholds)):
         scaled = snr / threshold
         if max_image is None:
             max_image = scaled.copy()
-            winner = np.zeros(scaled.shape, dtype=np.uint8)
+            template = np.zeros(scaled.shape, dtype=np.uint8)
         else:
             better = scaled > max_image
             max_image[better] = scaled[better]
-            winner[better] = index
-    return max_image, winner
+            template[better] = index
+    return max_image, template
 
 
-def _assign_segments(deblended, max_image, winner, snr_images, snr_rms,
+def _assign_segments(deblended, max_image, template_at_pixel, snr_images,
+                     snr_rms,
                      footprints, shape, npixels, mask=None,
                      dilate=_SEGMENT_DILATE, max_sources=0):
     """
-    Turn deblended catchments into the final segmentation image.
+    Turn deblended segments into the final segmentation image.
 
+    Parameters
+    ----------
+    deblended : `SegmentationImage`
+        The deblended catchments, one label per source, covering the whole
+        detection footprint.
+    max_image : 2D `numpy.ndarray`
+        The maximum-over-templates image, in units of each template's own
+        threshold.  Used only to locate each catchment's peak.
+    template_at_pixel : 2D `numpy.ndarray`
+        Index of the template attaining the maximum at each pixel.
+    snr_images : list of 2D `numpy.ndarray`
+        The per-template SNR images, used to read each source's peak value.
+    snr_rms : list of 2D `numpy.ndarray`
+        The measured background noise of each SNR image, so that the peak can
+        be expressed in sigma.
+    footprints : list of 2D `numpy.ndarray`
+        Boolean footprint of each template, i.e. where that template's SNR
+        exceeds its own threshold.  Used to narrow a catchment to the
+        isophote of the template that fits it.
+    shape : tuple
+        Shape of the output segmentation image.
+    npixels : int
+        A catchment is narrowed to its template's footprint only if at least
+        this many pixels survive; otherwise the whole catchment is kept.
+    mask : 2D `numpy.ndarray`, optional
+        Boolean mask.  Masked pixels stay inside a segment, so that a bad
+        column does not cut a source in two, but they do not count toward
+        the minimum size, because the photometry cannot use them.
+    dilate : int, optional
+        Grow each segment by this many pixels before painting.
+    max_sources : int, optional
+        Stop after this many sources have been painted.  Zero means no limit.
+
+    Returns
+    -------
+    segment_img : `SegmentationImage` or None
+    template_index : 1D `numpy.ndarray`
+    significance : 1D `numpy.ndarray`
+
+    Notes
+    -----
     Sources are painted brightest first so that a dilated segment cannot take
     pixels from a more significant neighbour.  Each source's shape comes from
-    the detection image that actually fits it: the catchment intersected with
+    the detection image that actually fits it: the segment intersected with
     the winning template's own footprint, so a star keeps the compact PSF
     isophote instead of the inflated one a wide template would draw.
 
@@ -196,7 +247,7 @@ def _assign_segments(deblended, max_image, winner, snr_images, snr_rms,
         )
         ypeak = peak[0] + slices[0].start
         xpeak = peak[1] + slices[1].start
-        index = int(winner[ypeak, xpeak])
+        index = int(template_at_pixel[ypeak, xpeak])
         rms = float(snr_rms[index][ypeak, xpeak])
         sig = float(snr_images[index][ypeak, xpeak]) / (rms if rms > 0 else 1.0)
         candidates.append((sig, slices, inside, ypeak, xpeak, index))
@@ -310,8 +361,6 @@ def make_segmentation_image_template(
         Per-pixel uncertainty.
     snr_threshold : float
         Detection threshold, in units of the significance image's own noise.
-        The same number for every template, so it means "this many sigma"
-        regardless of source size.
     n_pixels : int
         Minimum number of connected pixels for a deblended child.
     kernel_fwhm : float
@@ -345,34 +394,27 @@ def make_segmentation_image_template(
     snr_rms = []
     footprints = []
     for snr in snr_images:
-        # ``mask``, not ``coverage_mask``: the significance is defined at a
-        # masked pixel, because only the weights *under* the kernel need be
-        # non-zero.  Passing the mask as coverage would blank the noise
-        # estimate exactly where sources are brightest -- most masked pixels
-        # are saturated cores -- leaving the threshold undefined there.
+        # mask rather than coverage_mask because snr_image is well defined
+        # on masked pixels, and using mask leads bkg_rms to be well defined
+        # there
         bkg_rms = RomanBackground(
             snr, box_size=bkg_boxsize, mask=mask
         ).background_rms
         snr_rms.append(bkg_rms)
         thresholds.append(snr_threshold * bkg_rms)
-        # only the footprint is used, so there is nothing to deblend here
-        segm = make_segmentation_image(
-            snr, snr_threshold, 1, bkg_rms, deblend=False, mask=None
-        )
-        footprints.append(
-            np.zeros(data.shape, dtype=bool)
-            if segm is None
-            else np.asarray(segm.data) > 0
-        )
+        footprints.append(snr > snr_threshold * bkg_rms)
 
-    union = np.zeros(data.shape, dtype=bool)
-    for footprint in footprints:
-        union |= footprint
+    max_image, template_at_pixel = _max_detection_image(snr_images, thresholds)
+    finite = np.where(np.isfinite(max_image), max_image, 0.0)
+
+    # The detection footprint is simply where some template exceeds its own
+    # threshold, which is where the maximum image exceeds one.  Its connected
+    # components are the regions that will be deblended; ``deblend_sources``
+    # subdivides the labels of a segmentation image, so they have to be
+    # labelled first.
+    union = finite > 1.0
     if not union.any():
         return None, conv_psf, None, None
-
-    max_image, winner = _max_detection_image(snr_images, thresholds)
-    finite = np.where(np.isfinite(max_image), max_image, 0.0)
 
     parents, n_parents = scipy.ndimage.label(union, structure=np.ones((3, 3)))
     segm_all = SegmentationImage(parents)
@@ -394,7 +436,7 @@ def make_segmentation_image_template(
     segment_img, template_index, significance = _assign_segments(
         deblended,
         finite,
-        winner,
+        template_at_pixel,
         snr_images,
         snr_rms,
         footprints,

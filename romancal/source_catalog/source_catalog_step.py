@@ -170,10 +170,8 @@ class SourceCatalogStep(RomanStep):
             return cat_model, segmentation_model
 
         log.info("Calculating and subtracting background")
-        # bad pixels belong in ``mask``: ``coverage_mask`` blanks the output
-        # background and RMS, which would leave them undefined exactly where
-        # most masked pixels are -- the saturated cores of the brightest
-        # sources.  ``coverage_mask`` is for regions with no data at all.
+        # bad pixel mask rather than coverage_mask to keep finite RMS estimates
+        # in holes
         bkg = RomanBackground(
             model.data,
             box_size=self.bkg_boxsize,
@@ -249,7 +247,7 @@ class SourceCatalogStep(RomanStep):
         )
         cat = catobj.catalog
 
-        if det_template is not None and len(det_template) == len(cat):
+        if det_template is not None:
             # which template detected each source, and how significant its
             # peak was.  Extra columns beyond the schema are carried through
             # to the output table.

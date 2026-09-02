@@ -65,11 +65,21 @@ _LOWER_SCALE = 12.0
 # How the background is subtracted: see ``make_gaussian_kernel``.
 _LOWER_MODE = "box"
 
-# Whether the image used for centroids and moments is also lowered.  A lowered
-# image measures a source against its local background, which matters for a
-# compact source on a galaxy's light; the risk is that a zero-sum kernel goes
-# negative, and moments with negative weights are not well defined.
-_MOMENT_LOWERED = True
+# Whether the image used for centroids and moments is also lowered.
+#
+# Lowering it is measurably better where it works: on the galaxy field the
+# median centroid error against truth falls from 0.684 to 0.626 px, and on the
+# star field the measured source size becomes 0.13 arcsec against 0.21, the
+# former matching the expected convolved PSF width of 1.20 px -- so the
+# unlowered moments are biased by the background pedestal they still contain.
+#
+# It is nevertheless off, because it fails on crowded fields.  Moments are a
+# weighted sum over segment pixels and need non-negative weights; a zero-sum
+# kernel's negative surround breaks that, and flooring at zero is not enough
+# because a segment can then have no positive pixel at all and no defined
+# centroid.  Fixing it properly needs a per-source fallback to the unlowered
+# image, which the single shared moment image does not currently allow.
+_MOMENT_LOWERED = False
 
 # Deblending contrast for the maximum image: the fraction of a parent's flux a
 # peak must hold to be split off.  Note this differs from the 1e-4 that
@@ -154,6 +164,14 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
         lower_mode=_LOWER_MODE,
     )
     _, _, conv_psf = ivw_convolve(data, wht, psf_kernel, mask=mask)
+    if _MOMENT_LOWERED:
+        # Moments are a weighted sum over segment pixels, so the weights must
+        # be non-negative; a lowered kernel's negative surround makes them
+        # undefined, and in a crowded field a segment can be dominated by it.
+        # Flooring at zero keeps the background subtraction -- the quantity
+        # measured is flux above the local background -- while leaving the
+        # weights positive.
+        conv_psf = np.maximum(conv_psf, 0.0)
 
     return snr_images, conv_psf
 

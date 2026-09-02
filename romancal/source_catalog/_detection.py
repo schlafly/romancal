@@ -53,7 +53,8 @@ def convolve_data(data, kernel_fwhm, size=None, mask=None):
 
 
 def make_segmentation_image(
-    convolved_data, snr_threshold, n_pixels, bkg_rms, deblend=False, mask=None
+    convolved_data, snr_threshold, n_pixels, bkg_rms, deblend=False, mask=None,
+    deblend_contrast=1e-4,
 ):
     """
     Make a segmentation image from a model image.
@@ -73,6 +74,9 @@ def make_segmentation_image(
     mask : 2D `numpy.ndarray`, optional
         A boolean mask with the same shape as the input data. True
         values indicate masked pixels.
+    deblend_contrast : float, optional
+        The fraction of the total source flux that a local peak must have to
+        be deblended as a separate source.
 
     Returns
     -------
@@ -83,7 +87,9 @@ def make_segmentation_image(
         # suppress NoDetectionsWarning from photutils
         warnings.filterwarnings("ignore", category=NoDetectionsWarning)
 
-        finder = SourceFinder(n_pixels, deblend=deblend, contrast=1e-4)
+        finder = SourceFinder(
+            n_pixels, deblend=deblend, contrast=deblend_contrast
+        )
         threshold = snr_threshold * bkg_rms
         segment_img = finder(convolved_data, threshold, mask=mask)
 

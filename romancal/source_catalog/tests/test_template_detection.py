@@ -106,7 +106,7 @@ def test_detects_sources_of_each_size(wide_image):
 def test_segments_are_contiguous(wide_image):
     """Every label is a single connected piece.
 
-    Not automatic: narrowing a catchment to its template's footprint, and
+    Not automatic: narrowing a max-image segment to its template's footprint, and
     losing pixels to a brighter neighbour, can both split it into islands,
     and a label whose pixels lie in two places has its centroid in the gap
     between them.  `_assign_segments` trims each source to the piece holding

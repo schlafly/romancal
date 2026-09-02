@@ -60,7 +60,16 @@ _SIZE_FACTOR = 4
 # noise fluctuations in the wings of extended sources.
 # At lower_scale = 10 the typical SNRs are down by a couple percent
 # compared with unlowered templates.
-_LOWER_SCALE = 10.0
+_LOWER_SCALE = 12.0
+
+# How the background is subtracted: see ``make_gaussian_kernel``.
+_LOWER_MODE = "box"
+
+# Whether the image used for centroids and moments is also lowered.  A lowered
+# image measures a source against its local background, which matters for a
+# compact source on a galaxy's light; the risk is that a zero-sum kernel goes
+# negative, and moments with negative weights are not well defined.
+_MOMENT_LOWERED = True
 
 # Deblending contrast for the maximum image: the fraction of a parent's flux a
 # peak must hold to be split off.  Note this differs from the 1e-4 that
@@ -115,7 +124,8 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
     snr_images = []
     for fwhm in _template_fwhms(kernel_fwhm):
         kernel = make_gaussian_kernel(
-            fwhm, lower_scale=_LOWER_SCALE, size_factor=_SIZE_FACTOR
+            fwhm, lower_scale=_LOWER_SCALE, size_factor=_SIZE_FACTOR,
+            lower_mode=_LOWER_MODE,
         )
         if kernel.shape[0] > min(data.shape):
             # kernel plus its background-subtraction surround is wider than
@@ -137,7 +147,12 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
         )
         return [], None
 
-    psf_kernel = make_gaussian_kernel(kernel_fwhm, size_factor=_SIZE_FACTOR)
+    psf_kernel = make_gaussian_kernel(
+        kernel_fwhm,
+        size_factor=_SIZE_FACTOR,
+        lower_scale=_LOWER_SCALE if _MOMENT_LOWERED else 0.0,
+        lower_mode=_LOWER_MODE,
+    )
     _, _, conv_psf = ivw_convolve(data, wht, psf_kernel, mask=mask)
 
     return snr_images, conv_psf

@@ -165,7 +165,7 @@ def _max_detection_image(snr_images, thresholds):
 
 def _assign_segments(deblended, max_image, winner, snr_images, snr_rms,
                      footprints, shape, npixels, mask=None,
-                     dilate=_SEGMENT_DILATE):
+                     dilate=_SEGMENT_DILATE, max_sources=0):
     """
     Turn deblended catchments into the final segmentation image.
 
@@ -210,7 +210,16 @@ def _assign_segments(deblended, max_image, winner, snr_images, snr_rms,
     n_dropped = 0
     n_trimmed = 0
 
+    n_capped = 0
     for sig, slices, inside, ypeak, xpeak, index in candidates:
+        if max_sources and n_label >= max_sources:
+            # A very crowded field can yield far more sources than the
+            # photometry that follows can measure in reasonable time.  The
+            # candidates are ordered by significance, so stopping here keeps
+            # the most significant ones and skips the rest before they are
+            # painted or measured.
+            n_capped = len(candidates) - max_sources
+            break
         pad = int(dilate) + 1
         y0 = max(slices[0].start - pad, 0)
         y1 = min(slices[0].stop + pad, shape[0])
@@ -264,6 +273,11 @@ def _assign_segments(deblended, max_image, winner, snr_images, snr_rms,
         f"{_MIN_SEGMENT_PIXELS} usable pixels, {n_trimmed} trimmed to their "
         "peak component)"
     )
+    if n_capped:
+        log.info(
+            f"Kept the {max_sources} most significant sources; skipped "
+            f"{n_capped} fainter candidates (max_sources)"
+        )
     if n_label == 0:
         return None, None, None
 
@@ -283,6 +297,7 @@ def make_segmentation_image_template(
     deblend=True,
     mask=None,
     bkg_boxsize=100,
+    max_sources=0,
 ):
     """
     Detect sources with a bank of matched filters.
@@ -307,6 +322,9 @@ def make_segmentation_image_template(
         Boolean mask; True values are given zero weight.
     bkg_boxsize : int, optional
         Box size for estimating the noise of each significance image.
+    max_sources : int, optional
+        Keep at most this many sources, the most significant first.  Zero
+        means no limit.
 
     Returns
     -------
@@ -383,6 +401,7 @@ def make_segmentation_image_template(
         data.shape,
         n_pixels,
         mask=mask,
+        max_sources=max_sources,
     )
 
     return segment_img, conv_psf, template_index, significance

@@ -87,6 +87,7 @@ class SourceCatalogStep(RomanStep):
         snr_threshold = float(default=5.0)    # detection threshold in sigma
         npixels = integer(default=1)          # min number of pixels in a deblended child
         deblend = boolean(default=True)       # deblend sources?
+        max_sources = integer(default=50000)  # keep only this many most significant sources (0 = no limit)
         suffix = string(default='cat')        # Default suffix for output files
         fit_psf = boolean(default=True)       # fit source PSFs for accurate astrometry?
         forced_segmentation = string(default='')  # force the use of this segmentation map
@@ -198,6 +199,7 @@ class SourceCatalogStep(RomanStep):
                 deblend=self.deblend,
                 mask=mask,
                 bkg_boxsize=self.bkg_boxsize,
+                max_sources=self.max_sources,
             )
             segmentation_model["detection_image"] = detection_image
         else:

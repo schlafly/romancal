@@ -12,4 +12,6 @@ which template detected each source, and ``det_significance``, its peak
 significance.  The bad-pixel mask is now passed to the background estimator
 as ``mask`` rather than ``coverage_mask``, which had left the background RMS,
 and so the detection threshold, undefined at masked pixels -- most of which
-are the saturated cores of the brightest sources.
+are the saturated cores of the brightest sources.  A ``max_sources`` option caps the catalog at the most
+significant sources, guarding against the time the photometry would take
+on a very crowded field.

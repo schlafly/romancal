@@ -173,12 +173,17 @@ def test_forced_catalog(image_model, function_jail, ignore_parquet_metadata_path
 @pytest.mark.parametrize(
     "snr_threshold, npixels, nsources, save_results",
     (
+        # ``snr_threshold`` is the peak significance of the matched filter,
+        # in sigma, so the counts below track the seven planted sources
+        # falling below it one at a time.  ``npixels`` is the minimum size
+        # of a deblended child and does not prune isolated sources, so 10
+        # and 50 give the same answer here.
         (3, 10, 7, True),
-        (3, 50, 5, False),
+        (3, 50, 7, False),
         (10, 10, 7, False),
         (20, 10, 5, False),
-        (25, 10, 3, False),
-        (35, 10, 1, False),
+        (25, 10, 4, False),
+        (35, 10, 0, False),
         (50, 10, 0, False),
     ),
 )
@@ -254,12 +259,17 @@ def test_l2_source_catalog(
 @pytest.mark.parametrize(
     "snr_threshold, npixels, nsources, save_results",
     (
+        # ``snr_threshold`` is the peak significance of the matched filter,
+        # in sigma, so the counts below track the seven planted sources
+        # falling below it one at a time.  ``npixels`` is the minimum size
+        # of a deblended child and does not prune isolated sources, so 10
+        # and 50 give the same answer here.
         (3, 10, 7, True),
-        (3, 50, 5, False),
+        (3, 50, 7, False),
         (10, 10, 7, False),
         (20, 10, 5, False),
-        (25, 10, 3, False),
-        (35, 10, 1, False),
+        (25, 10, 4, False),
+        (35, 10, 0, False),
         (50, 10, 0, False),
     ),
 )

@@ -16,7 +16,10 @@ from roman_datamodels.dqflags import pixel
 
 from romancal.datamodels.fileio import open_dataset
 from romancal.source_catalog._background import RomanBackground
-from romancal.source_catalog._detection import convolve_data, make_segmentation_image
+from romancal.source_catalog._detection import convolve_data
+from romancal.source_catalog._template_detection import (
+    make_segmentation_image_template,
+)
 from romancal.source_catalog._skyvals import compute_skyvals
 from romancal.source_catalog._source_catalog import RomanSourceCatalog
 from romancal.source_catalog._utils import copy_model_arrays, get_ee_spline
@@ -81,9 +84,9 @@ class SourceCatalogStep(RomanStep):
     spec = """
         bkg_boxsize = integer(default=1000)   # background mesh box size in pixels
         kernel_fwhm = float(default=2.0)      # Gaussian kernel FWHM in pixels
-        snr_threshold = float(default=3.0)    # per-pixel SNR threshold above the bkg
-        npixels = integer(default=25)         # min number of pixels in source
-        deblend = boolean(default=False)      # deblend sources?
+        snr_threshold = float(default=5.0)    # detection threshold in sigma
+        npixels = integer(default=1)          # min number of pixels in a deblended child
+        deblend = boolean(default=True)       # deblend sources?
         suffix = string(default='cat')        # Default suffix for output files
         fit_psf = boolean(default=True)       # fit source PSFs for accurate astrometry?
         forced_segmentation = string(default='')  # force the use of this segmentation map
@@ -166,30 +169,41 @@ class SourceCatalogStep(RomanStep):
             return cat_model, segmentation_model
 
         log.info("Calculating and subtracting background")
+        # bad pixels belong in ``mask``: ``coverage_mask`` blanks the output
+        # background and RMS, which would leave them undefined exactly where
+        # most masked pixels are -- the saturated cores of the brightest
+        # sources.  ``coverage_mask`` is for regions with no data at all.
         bkg = RomanBackground(
             model.data,
             box_size=self.bkg_boxsize,
-            coverage_mask=mask,
+            mask=mask,
         )
         model.data -= bkg.background
 
-        log.info("Creating detection image")
-        detection_image = convolve_data(
-            model.data, kernel_fwhm=self.kernel_fwhm, mask=mask
-        )
-
         log.info("Detecting sources")
+        det_template = None
+        det_significance = None
         if not self.forced_segmentation:
-            segment_img = make_segmentation_image(
+            (
+                segment_img,
                 detection_image,
+                det_template,
+                det_significance,
+            ) = make_segmentation_image_template(
+                model.data,
+                model.err,
                 snr_threshold=self.snr_threshold,
                 n_pixels=self.npixels,
-                bkg_rms=bkg.background_rms,
+                kernel_fwhm=self.kernel_fwhm,
                 deblend=self.deblend,
                 mask=mask,
+                bkg_boxsize=self.bkg_boxsize,
             )
             segmentation_model["detection_image"] = detection_image
         else:
+            detection_image = convolve_data(
+                model.data, kernel_fwhm=self.kernel_fwhm, mask=mask
+            )
             forced_segmodel = datamodels.open(self.forced_segmentation)
             # forced_segmodel.data is asdf.tags.core.ndarray.NDArrayType
             forced_segimg = forced_segmodel.data[...]
@@ -232,6 +246,13 @@ class SourceCatalogStep(RomanStep):
             ee_spline=ee_spline,
         )
         cat = catobj.catalog
+
+        if det_template is not None and len(det_template) == len(cat):
+            # which template detected each source, and how significant its
+            # peak was.  Extra columns beyond the schema are carried through
+            # to the output table.
+            cat["det_template"] = det_template
+            cat["det_significance"] = det_significance
 
         if self.forced_segmentation:
             # TODO: improve this so that the moment-based properties are

@@ -6,7 +6,6 @@ import logging
 import math
 import warnings
 
-import scipy.signal
 
 import numpy as np
 from astropy.convolution import convolve, convolve_fft
@@ -102,8 +101,7 @@ def make_segmentation_image(
     return segment_img
 
 
-def make_gaussian_kernel(fwhm, lower_scale=0.0, size_factor=3,
-                         max_size=601, lower_mode="gaussian"):
+def make_gaussian_kernel(fwhm, lower_scale=0.0, size_factor=3, max_size=601):
     """
     Make a normalized 2D circular Gaussian kernel.
 
@@ -119,27 +117,17 @@ def make_gaussian_kernel(fwhm, lower_scale=0.0, size_factor=3,
     lower_scale : float, optional
         If greater than zero, return a "lowered" (zero-sum) kernel
 
-            k' = k - k * g,   FWHM(g) = lower_scale * fwhm
+            k' = k - mean(k)
 
-        i.e. the matched filter for a source plus an unknown background
-        varying on ``lower_scale`` times the template's own scale.  A
+        over a box ``lower_scale * fwhm`` across, i.e. the matched filter
+        for a source plus an unknown background constant on that scale.  A
         zero-sum kernel gives no response to a flat background, so a
         compact source riding on a larger object's light keeps only the
-        smaller source's addition over the background.
-        The kernel size is enlarged to hold the
-        resulting negative surround, capped at ``max_size``.  Subtracting a
-        smoothed copy rather than a flat mean over the box separates the
-        background scale from the box size, and changes smoothly as a bright
-        neighbour enters the subtraction region.
+        smaller source's addition over the background.  The box *is* the
+        background scale, so the kernel is enlarged to hold it, capped at
+        ``max_size``.
     max_size : int, optional
         Largest kernel size, in pixels.
-    lower_mode : {'gaussian', 'box'}, optional
-        How the background is subtracted.  ``'gaussian'`` subtracts a
-        smoothed copy of the template, decoupling the background scale from
-        the box size.  ``'box'`` subtracts the mean over the box, so the box
-        size *is* the background scale and the kernel is correspondingly more
-        compact; the trade is that the subtraction region has a hard edge,
-        which changes discontinuously as a bright neighbour crosses it.
 
     Returns
     -------
@@ -148,28 +136,15 @@ def make_gaussian_kernel(fwhm, lower_scale=0.0, size_factor=3,
     """
     size = math.ceil(size_factor * fwhm)
     if lower_scale > 0:
-        if lower_mode == "box":
-            # the box *is* the background scale, so it need only be as wide
-            # as the structure to be removed
-            size = min(math.ceil(lower_scale * fwhm), max_size)
-            size = max(size, math.ceil(size_factor * fwhm))
-        else:
-            size = min(math.ceil(size_factor * fwhm * (1.0 + lower_scale)),
-                       max_size)
+        # the box *is* the background scale, so it need only be as wide
+        # as the structure to be removed
+        size = min(math.ceil(lower_scale * fwhm), max_size)
+        size = max(size, math.ceil(size_factor * fwhm))
     size = size + 1 if size % 2 == 0 else size  # make size be odd
     kernel = np.asarray(make_2dgaussian_kernel(fwhm, size=size))  # sums to 1
 
     if lower_scale > 0:
-        if lower_mode == "box":
-            kernel = kernel - kernel.mean()
-        else:
-            gsize = min(math.ceil(size_factor * lower_scale * fwhm) | 1, size)
-            smooth = np.asarray(make_2dgaussian_kernel(lower_scale * fwhm,
-                                                       size=gsize))
-            smooth = smooth / smooth.sum()
-            kernel = kernel - scipy.signal.fftconvolve(
-                kernel, smooth, mode="same"
-            )
+        kernel = kernel - kernel.mean()
 
     return kernel
 

@@ -16,8 +16,8 @@ construct a segment that goes out until that large galaxy cross-correlation
 has fallen off significantly.  Because each source's peak in the significance
 image corresponds to a peak from a specific template, we can use the max
 significance image to define a parent set of segments and then intersect
-that with the specific segment that is specific for the kind of template
-that generated the peak.  So PSFs end up going out to isophotes appropriate
+that with the set of significant pixels belonging to the template that
+generated the peak.  So PSFs end up going out to isophotes appropriate
 for PSFs and large galaxies go deeper.
 
 Additionally we use 'lowered' templates that sum to zero to prevent
@@ -61,24 +61,6 @@ _SIZE_FACTOR = 4
 # At lower_scale = 10 the typical SNRs are down by a couple percent
 # compared with unlowered templates.
 _LOWER_SCALE = 12.0
-
-# How the background is subtracted: see ``make_gaussian_kernel``.
-_LOWER_MODE = "box"
-
-# Whether the image used for centroids and moments is also lowered.
-#
-# Lowering it is measurably better where it works: on the galaxy field the
-# median centroid error against truth falls from 0.684 to 0.626 px, and on the
-# star field the measured source size becomes 0.13 arcsec against 0.21, the
-# former matching the expected convolved PSF width of 1.20 px -- so the
-# unlowered moments are biased by the background pedestal they still contain.
-#
-# It is nevertheless off, because it fails on crowded fields: this one image is
-# the PSF-scale convolution for every segment, whichever template detected it,
-# and where the local mean is dominated by crowd or galaxy light the lowered
-# image can be negative over a whole footprint.  Moments then have no positive
-# pixel to weight and come back as NaN.
-_MOMENT_LOWERED = False
 
 # Deblending contrast for the maximum image: the fraction of a parent's flux a
 # peak must hold to be split off.  Note this differs from the 1e-4 that
@@ -140,8 +122,7 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
     snr_images = []
     for fwhm in _template_fwhms(kernel_fwhm):
         kernel = make_gaussian_kernel(
-            fwhm, lower_scale=_LOWER_SCALE, size_factor=_SIZE_FACTOR,
-            lower_mode=_LOWER_MODE,
+            fwhm, lower_scale=_LOWER_SCALE, size_factor=_SIZE_FACTOR
         )
         if kernel.shape[0] > min(data.shape):
             # kernel plus its background-subtraction surround is wider than
@@ -163,19 +144,12 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
         )
         return [], None
 
-    psf_kernel = make_gaussian_kernel(
-        kernel_fwhm,
-        size_factor=_SIZE_FACTOR,
-        lower_scale=_LOWER_SCALE if _MOMENT_LOWERED else 0.0,
-        lower_mode=_LOWER_MODE,
-    )
+    # Centroids and moments are measured on an unlowered convolution: the one
+    # image serves every segment whatever template detected it, and a lowered
+    # one can be negative over a whole footprint where the local mean is
+    # dominated by crowd or galaxy light, leaving the moments undefined.
+    psf_kernel = make_gaussian_kernel(kernel_fwhm, size_factor=_SIZE_FACTOR)
     _, _, conv_psf = ivw_convolve(data, wht, psf_kernel, mask=mask)
-    if _MOMENT_LOWERED:
-        # Moments weight segment pixels, so the weights must be non-negative
-        # and a lowered kernel's negative surround breaks that.  Photutils
-        # drops negative pixels itself, so this is belt and braces, and it is
-        # not sufficient; see the note beside _MOMENT_LOWERED.
-        conv_psf = np.maximum(conv_psf, 0.0)
 
     return snr_images, conv_psf
 

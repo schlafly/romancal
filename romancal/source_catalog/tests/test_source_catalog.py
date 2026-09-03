@@ -8,6 +8,7 @@ import pytest
 from astropy.modeling.models import Gaussian2D
 from astropy.table import Table
 from astropy.time import Time
+from astropy.utils.decorators import lazyproperty
 from numpy.testing import assert_equal
 from roman_datamodels.datamodels import (
     ForcedImageSourceCatalogModel,
@@ -579,6 +580,39 @@ def test_psf_photometry(function_jail, image_model):
         if "psf" in colname:
             assert len(cat[colname])  # make sure the column isn't empty
             assert not np.any(np.isnan(cat[colname]))  # and contains no nans
+
+
+def test_nonfinite_centroid_does_not_stop_the_step(
+    function_jail, image_model, monkeypatch
+):
+    """One source with a non-finite centroid must not stop the whole step.
+
+    PSFPhotometry raises on a non-finite position, so the PSF fit is handed
+    the positions with those replaced by a far-off-image value; there the fit
+    has no data and returns NaN with its flags set, the same treatment the
+    aperture and DAOFind catalogs already give such a source.
+    """
+    real = RomanSourceCatalog._xypos.fget
+
+    @lazyproperty
+    def one_nan(self):
+        xypos = real(self).copy()
+        xypos[0] = np.nan
+        return xypos
+
+    monkeypatch.setattr(RomanSourceCatalog, "_xypos", one_nan)
+
+    result_catalog, _ = SourceCatalogStep.call(
+        image_model,
+        bkg_boxsize=20,
+        kernel_fwhm=2.0,
+        snr_threshold=3,
+        npixels=10,
+        save_results=False,
+    )
+    cat = result_catalog.source_catalog
+    assert np.isnan(cat["x_psf"][0])
+    assert np.all(np.isfinite(cat["x_psf"][1:]))
 
 
 @pytest.mark.parametrize("fit_psf", [True, False])

@@ -271,8 +271,11 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
     """
     labels = np.asarray(deblended.data)
     structure = np.ones((3, 3), dtype=bool)
-    # Non-finite values compare false, so this is finite and positive.
-    moment_positive = moment_image > 0
+    # Exactly the pixels photutils will weight: it zeroes both the non-finite
+    # and the non-positive ones before taking moments.  ``> 0`` alone would
+    # count a +inf pixel that photutils discards, and a segment holding only
+    # those would pass the size cut and still have no centroid.
+    moment_positive = np.isfinite(moment_image) & (moment_image > 0)
 
     # Each segment's peak, and the template that wins there.  The winning
     # template is the argmax, so the maximum image at the peak *is* that

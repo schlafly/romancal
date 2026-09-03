@@ -1,7 +1,6 @@
 Overhaul source detection in the SourceCatalogStep, broadly aiming to
 improve depth while not damaging purity.  The new approach blends
 matched filter detection using a range of different sized kernels
-and watershed deblending.  Templates are 'lowered' -- the mean over the kernel box is subtracted, so
-they sum to zero and give no response to a smooth background -- and the
-image used for centroids and moments is lowered too, which removes a bias
-in the measured source sizes.
+and watershed deblending.  Templates are 'lowered' -- the mean over the
+kernel box is subtracted, so they sum to zero and give no response to a
+smooth background.

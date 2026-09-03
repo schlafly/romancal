@@ -450,6 +450,9 @@ def make_segmentation_image_template(
     snr_images, conv_psf = make_template_snr_images(
         data, err, kernel_fwhm, mask=mask
     )
+    if not snr_images:
+        # Nothing in the bank fits the image; already logged.
+        return None, None, None, None
 
     # Put each template's SNR image in units of its own background noise, so
     # that one threshold means the same thing for every template and the

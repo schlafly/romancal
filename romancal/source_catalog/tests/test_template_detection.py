@@ -173,3 +173,14 @@ def test_size_cut_counts_moment_positive_pixels(wide_image, monkeypatch):
     monkeypatch.setattr(td, "make_template_snr_images", negated)
     segment_img, _, _, _ = _detect(*wide_image)
     assert segment_img is None
+
+
+def test_no_template_fits_returns_no_sources():
+    """An image smaller than the narrowest kernel yields no sources, rather
+    than failing on a detection image that was never built."""
+    data = np.zeros((6, 6), dtype="float32")
+    err = np.ones((6, 6), dtype="float32")
+    result = make_segmentation_image_template(
+        data, err, snr_threshold=5.0, n_pixels=1, kernel_fwhm=2.0, deblend=True
+    )
+    assert result == (None, None, None, None)

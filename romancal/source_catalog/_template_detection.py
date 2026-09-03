@@ -314,7 +314,9 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
         if max_sources and n_label >= max_sources:
             # Allow early termination for crowded fields if requested, keeping
             # the bright sources.
-            n_capped = len(candidates) - max_sources
+            # Candidates consumed so far are the ones painted plus the ones
+            # dropped, not max_sources alone.
+            n_capped = len(candidates) - n_label - n_dropped
             break
 
         # pad to allow segment dilation

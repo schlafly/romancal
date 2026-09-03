@@ -66,6 +66,13 @@ class SourceCatalogStep(RomanStep):
     deblend : bool, optional
         If `True`, deblend overlapping sources after detection.
 
+    max_sources : int, optional
+        Keep only this many of the most significant sources; zero means
+        no limit.  A crowded field can yield far more detections than
+        are worth measuring, and the cost is superlinear: photutils'
+        `~photutils.psf.SourceGrouper` builds the full pairwise distance
+        matrix, which reaches 4 GB at 30000 sources and 12 GB at 50000.
+
     suffix : str, optional
         Suffix appended to the output filenames.  Default ``'cat'``.
 
@@ -87,7 +94,7 @@ class SourceCatalogStep(RomanStep):
         snr_threshold = float(default=5.0)    # detection threshold in sigma
         npixels = integer(default=1)          # min number of pixels in a deblended child
         deblend = boolean(default=True)       # deblend sources?
-        max_sources = integer(default=50000)  # keep only this many most significant sources (0 = no limit)
+        max_sources = integer(default=30000)  # keep only this many most significant sources (0 = no limit)
         suffix = string(default='cat')        # Default suffix for output files
         fit_psf = boolean(default=True)       # fit source PSFs for accurate astrometry?
         forced_segmentation = string(default='')  # force the use of this segmentation map

@@ -60,8 +60,12 @@ class SourceCatalogStep(RomanStep):
         for a pixel to be considered part of a source.
 
     npixels : int, optional
-        Minimum number of connected pixels above ``snr_threshold``
-        required for a detection to be retained as a source.
+        Smallest segment to keep, counted in the pixels the photometry can
+        actually weight: unmasked, not claimed by a brighter neighbour, and
+        positive in the image the moments are measured on.  It is applied at
+        the end, after each segment has been narrowed to its template's
+        isophote and dilated, so the default of 9 is exactly what dilation
+        makes of a lone detected pixel.
 
     deblend : bool, optional
         If `True`, deblend overlapping sources after detection.
@@ -88,7 +92,7 @@ class SourceCatalogStep(RomanStep):
         bkg_boxsize = integer(default=1000)   # background mesh box size in pixels
         kernel_fwhm = float(default=2.0)      # Gaussian kernel FWHM in pixels
         snr_threshold = float(default=5.0)    # detection threshold in sigma
-        npixels = integer(default=1)          # min number of pixels in a deblended child
+        npixels = integer(default=9)          # min usable pixels in a final segment
         deblend = boolean(default=True)       # deblend sources?
         max_sources = integer(default=30000)  # keep only this many most significant sources (0 = no limit)
         suffix = string(default='cat')        # Default suffix for output files

@@ -76,15 +76,6 @@ _DEBLEND_CONTRAST = 0.001
 # single pixels grow to 3x3 segments.
 _SEGMENT_DILATE = 1
 
-# Smallest final segment to keep, counted in the pixels the photometry can
-# use for moment computation: unmasked, not claimed by a brighter neighbour,
-# and positive in the moment image.  This is exactly what dilation makes of a
-# lone detected pixel, so for faint isolated sources it says the source must
-# retain the whole neighbourhood dilation gave it.  It is a separate idea from
-# the step's ``npixels``, which is the smallest deblended child allowed in the
-# maximum image, before dilation and with no reference to the moments.
-_MIN_SEGMENT_PIXELS = (2 * _SEGMENT_DILATE + 1) ** 2
-
 
 def _template_fwhms(kernel_fwhm):
     """Template FWHMs in pixels, PSF first."""
@@ -190,7 +181,7 @@ def _max_detection_image(snr_images):
 
 
 def _assign_segments(deblended, max_image, template_at_pixel, footprints,
-                     moment_image, mask=None, dilate=_SEGMENT_DILATE,
+                     moment_image, n_pixels, mask=None, dilate=_SEGMENT_DILATE,
                      max_sources=0):
     """
     Turn deblended segments into the final segmentation image.
@@ -203,8 +194,8 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
     using that template only.  Paint the intersection onto the final derived
     segmentation image, after dilating.  Later lower SNR segments
     cannot overwrite pixels claimed by an earlier segment, and are dropped
-    if they end up with fewer than _MIN_SEGMENT_PIXELS pixels the photometry
-    can weight.
+    if they end up with fewer than ``n_pixels`` pixels the photometry can
+    weight.
 
     Parameters
     ----------
@@ -223,6 +214,10 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
     moment_image : 2D `numpy.ndarray`
         The image the moments will be measured on.  Only its sign is used, to
         count the pixels a segment contributes to its own centroid.
+    n_pixels : int
+        Smallest final segment to keep, counted in the pixels the photometry
+        can use for moment computation: unmasked, not claimed by a brighter
+        neighbour, and positive in the moment image.
     mask : 2D `numpy.ndarray`, optional
         Boolean mask indicating bad pixels.
     dilate : int, optional
@@ -339,7 +334,7 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
         usable = local if mask is None else local & ~mask[window]
         # count only usable pixels that can be used for computing moments
         # so that moment computation cannot fail
-        if int((usable & moment_positive[window]).sum()) < _MIN_SEGMENT_PIXELS:
+        if int((usable & moment_positive[window]).sum()) < n_pixels:
             n_dropped += 1
             continue
 
@@ -351,7 +346,7 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
 
     log.info(
         f"Detected {n_label} sources ({n_dropped} dropped with fewer than "
-        f"{_MIN_SEGMENT_PIXELS} usable positive pixels, {n_trimmed} trimmed "
+        f"{n_pixels} usable positive pixels, {n_trimmed} trimmed "
         "to their peak component)"
     )
     if n_capped:
@@ -392,7 +387,9 @@ def make_segmentation_image_template(
     snr_threshold : float
         Detection threshold in sigma, the same for every template.
     n_pixels : int
-        Minimum number of connected pixels for a deblended child.
+        Smallest final segment to keep, counted in the pixels the photometry
+        can use for moment computation.  It is applied after narrowing and
+        dilation, not to the deblended children of the maximum image.
     kernel_fwhm : float
         FWHM of the PSF template, in pixels.
     deblend : bool, optional
@@ -444,10 +441,13 @@ def make_segmentation_image_template(
 
     # Detection and deblending on the maximum significance image
     # A unit background RMS is passed because the image is already in sigma.
+    # Deblending admits children of a single pixel: the size cut belongs at
+    # the end, once each segment has been narrowed to its template's isophote
+    # and dilated, and a genuine 5 sigma pixel should reach that stage.
     deblended = make_segmentation_image(
         max_image,
         snr_threshold,
-        n_pixels,
+        1,
         1.0,
         deblend=deblend,
         mask=None,
@@ -463,6 +463,7 @@ def make_segmentation_image_template(
         template_at_pixel,
         footprints,
         conv_psf,
+        n_pixels,
         mask=mask,
         max_sources=max_sources,
     )

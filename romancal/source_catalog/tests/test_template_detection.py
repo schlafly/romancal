@@ -48,7 +48,7 @@ def wide_image():
 def _detect(data, err, mask=None, **kwargs):
     bkg = RomanBackground(data, box_size=100, mask=mask)
     params = dict(
-        snr_threshold=5.0, n_pixels=1, kernel_fwhm=2.0, deblend=True,
+        snr_threshold=5.0, n_pixels=9, kernel_fwhm=2.0, deblend=True,
         mask=mask, bkg_boxsize=100,
     )
     params.update(kwargs)
@@ -189,6 +189,6 @@ def test_no_template_fits_returns_no_sources():
     data = np.zeros((6, 6), dtype="float32")
     err = np.ones((6, 6), dtype="float32")
     result = make_segmentation_image_template(
-        data, err, snr_threshold=5.0, n_pixels=1, kernel_fwhm=2.0, deblend=True
+        data, err, snr_threshold=5.0, n_pixels=9, kernel_fwhm=2.0, deblend=True
     )
     assert result == (None, None, None, None)

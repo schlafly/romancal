@@ -73,12 +73,19 @@ _LOWER_MODE = "box"
 # former matching the expected convolved PSF width of 1.20 px -- so the
 # unlowered moments are biased by the background pedestal they still contain.
 #
-# It is nevertheless off, because it fails on crowded fields.  Moments are a
-# weighted sum over segment pixels and need non-negative weights; a zero-sum
-# kernel's negative surround breaks that, and flooring at zero is not enough
-# because a segment can then have no positive pixel at all and no defined
-# centroid.  Fixing it properly needs a per-source fallback to the unlowered
-# image, which the single shared moment image does not currently allow.
+# It is nevertheless off, because it fails on crowded fields.  This one image
+# is the PSF-scale convolution for every segment, whichever template detected
+# it, and a segment won by a large template need not be a PSF-scale prominence:
+# where the box mean is dominated by galaxy or crowd light the lowered image can
+# be negative over the whole footprint.  Photutils zeroes negative pixels before
+# taking moments, so such a segment weighs nothing, and its centroid and shape
+# come back as a silent NaN -- which later stops the step outright, because
+# PSFPhotometry rejects non-finite positions.
+#
+# A per-source fallback would fix it: moments are computed strictly inside a
+# segment and segments are disjoint, so a single image can carry a per-segment
+# choice.  Convolve both ways and, for each label whose lowered footprint holds
+# no positive pixel, copy the unlowered values over that label's pixels.
 _MOMENT_LOWERED = False
 
 # Deblending contrast for the maximum image: the fraction of a parent's flux a
@@ -166,11 +173,10 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
     _, _, conv_psf = ivw_convolve(data, wht, psf_kernel, mask=mask)
     if _MOMENT_LOWERED:
         # Moments are a weighted sum over segment pixels, so the weights must
-        # be non-negative; a lowered kernel's negative surround makes them
-        # undefined, and in a crowded field a segment can be dominated by it.
-        # Flooring at zero keeps the background subtraction -- the quantity
-        # measured is flux above the local background -- while leaving the
-        # weights positive.
+        # be non-negative, and a lowered kernel's negative surround breaks
+        # that.  Flooring here is belt and braces -- photutils drops negative
+        # pixels before taking moments anyway -- and it is not sufficient; see
+        # the note beside _MOMENT_LOWERED.
         conv_psf = np.maximum(conv_psf, 0.0)
 
     return snr_images, conv_psf

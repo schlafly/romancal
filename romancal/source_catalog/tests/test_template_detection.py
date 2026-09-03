@@ -152,3 +152,24 @@ def test_masked_stripe_does_not_split_a_segment(wide_image):
     above, below = labels[372, 150], labels[389, 150]
     assert above > 0
     assert above == below
+
+
+def test_size_cut_counts_moment_positive_pixels(wide_image, monkeypatch):
+    """The minimum segment size counts the pixels the moments can weight.
+
+    Photutils drops non-positive pixels before taking moments, so a segment
+    with none of them has no centroid and returns NaN, which later stops the
+    step at the PSF fit.  With a moment image that is positive nowhere, every
+    source must be dropped rather than kept with an undefined centroid.
+    """
+    import romancal.source_catalog._template_detection as td
+
+    real = td.make_template_snr_images
+
+    def negated(*args, **kwargs):
+        snr_images, conv = real(*args, **kwargs)
+        return snr_images, -np.abs(conv)
+
+    monkeypatch.setattr(td, "make_template_snr_images", negated)
+    segment_img, _, _, _ = _detect(*wide_image)
+    assert segment_img is None

@@ -91,10 +91,17 @@ _DEBLEND_CONTRAST = 0.001
 # single pixels grow to 3x3 segments.
 _SEGMENT_DILATE = 1
 
-# Smallest final segment to keep, counted in pixels the photometry can
-# actually use.  Dilation grows a lone pixel to a full 3x3, so for faint isolated
-# sources this means the source must retain its 3x3 neighborhood after
-# removing masked pixels and pixels assigned to neighbors.
+# Smallest final segment to keep, counted in the pixels the photometry can
+# actually weight: unmasked, not claimed by a brighter neighbour, and positive
+# in the moment image.  Dilation grows a lone pixel to a full 3x3, so for faint
+# isolated sources this means the source must retain its 3x3 neighborhood.
+#
+# Positivity matters because photutils drops non-positive pixels before taking
+# moments, so a segment with none has no centroid and returns NaN, which later
+# stops the step at PSFPhotometry.  Counting them makes that impossible by
+# construction and restores the property main has for free: there, segments are
+# a threshold on the same image the moments come from, so every segment pixel is
+# positive by definition.
 _MIN_SEGMENT_PIXELS = 9
 
 
@@ -207,7 +214,8 @@ def _max_detection_image(snr_images):
 
 
 def _assign_segments(deblended, max_image, template_at_pixel, footprints,
-                     shape, mask=None, dilate=_SEGMENT_DILATE, max_sources=0):
+                     moment_image, shape, mask=None, dilate=_SEGMENT_DILATE,
+                     max_sources=0):
     """
     Turn deblended segments into the final segmentation image.
 
@@ -218,7 +226,8 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
     with the max_image SNR image and paint it onto final derived
     segmentation image, after dilating.  Later lower SNR segments
     cannot overwrite pixels claimed by an earlier segment, and are dropped
-    if they end up with fewer than _MIN_SEGMENT_PIXELS valid pixels.
+    if they end up with fewer than _MIN_SEGMENT_PIXELS pixels the photometry
+    can weight.
 
     Parameters
     ----------
@@ -234,6 +243,9 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
         Boolean footprint of each template, i.e. where that template's SNR
         exceeds its own threshold.  Used to narrow segments from max_det to
         the segments from the template that fits it.
+    moment_image : 2D `numpy.ndarray`
+        The image the moments will be measured on.  Only its sign is used, to
+        count the pixels a segment contributes to its own centroid.
     shape : tuple
         Shape of the output segmentation image.
     mask : 2D `numpy.ndarray`, optional
@@ -259,6 +271,8 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
     """
     labels = np.asarray(deblended.data)
     structure = np.ones((3, 3), dtype=bool)
+    # Non-finite values compare false, so this is finite and positive.
+    moment_positive = moment_image > 0
 
     # Each segment's peak, and the template that wins there.  The winning
     # template is the argmax, so the maximum image at the peak *is* that
@@ -353,7 +367,10 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
         # unmasked pixels, so the segmentation image never claims a pixel the
         # photometry cannot use.
         usable = local if mask is None else local & ~mask[window]
-        if int(usable.sum()) < _MIN_SEGMENT_PIXELS:
+        # Membership is every unmasked pixel, but only the ones positive in
+        # the moment image carry weight when the moments are taken, so those
+        # are what the size cut counts.
+        if int((usable & moment_positive[window]).sum()) < _MIN_SEGMENT_PIXELS:
             n_dropped += 1
             continue
 
@@ -365,8 +382,8 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
 
     log.info(
         f"Detected {n_label} sources ({n_dropped} dropped with fewer than "
-        f"{_MIN_SEGMENT_PIXELS} usable pixels, {n_trimmed} trimmed to their "
-        "peak component)"
+        f"{_MIN_SEGMENT_PIXELS} usable positive pixels, {n_trimmed} trimmed "
+        "to their peak component)"
     )
     if n_capped:
         log.info(
@@ -474,6 +491,7 @@ def make_segmentation_image_template(
         max_image,
         template_at_pixel,
         footprints,
+        conv_psf,
         data.shape,
         mask=mask,
         max_sources=max_sources,

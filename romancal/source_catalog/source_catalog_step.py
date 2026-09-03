@@ -60,12 +60,9 @@ class SourceCatalogStep(RomanStep):
         for a pixel to be considered part of a source.
 
     npixels : int, optional
-        Smallest segment to keep, counted in the pixels the photometry can
-        actually weight: unmasked, not claimed by a brighter neighbour, and
-        positive in the image the moments are measured on.  It is applied at
-        the end, after each segment has been narrowed to its template's
-        isophote and dilated, so the default of 9 is exactly what dilation
-        makes of a lone detected pixel.
+        Smallest segment to keep, counted as unmasked, positive pixels
+        in the segment.  Segments smaller than this size are excluded
+        during segment merging.
 
     deblend : bool, optional
         If `True`, deblend overlapping sources after detection.

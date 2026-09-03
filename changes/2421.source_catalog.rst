@@ -1,8 +1,4 @@
 Overhaul source detection in the SourceCatalogStep, broadly aiming to
 improve depth while not damaging purity.  The new approach blends
 matched filter detection using a range of different sized kernels
-and watershed deblending.  Templates are 'lowered' -- the mean over the
-kernel box is subtracted, so they sum to zero and give no response to a
-smooth background.  ``npixels`` now sets the smallest segment kept at the
-end, counted in the pixels the photometry can use, rather than the number
-of connected pixels required to detect a source.
+and watershed deblending.

@@ -31,27 +31,54 @@ assigns an integer label to each pixel in an image, such that pixels
 with the same label correspond to the same source. Source extraction is
 then performed using the `Photutils segmentation <https://photutils.readthedocs.io/en/latest/user_guide/segmentation.html>`_ tools.
 
-The background-subtracted image is convolved with a Gaussian kernel
-to smooth the noise and enhance the detectability of objects with a
-shape similar to the kernel. The Gaussian kernel is defined by
-the ``kernel_fwhm`` parameter, which specifies the full-width at half-maximum
-(FWHM) of the kernel. The kernel is normalized to have a total
-flux of 1.0.
+The background-subtracted image is filtered with a bank of matched
+filters rather than a single kernel, so that sources of different sizes
+are each detected by a template close to their own scale. The bank holds
+a point-source template, a Gaussian whose FWHM is set by the
+``kernel_fwhm`` parameter, together with three larger templates standing
+in for galaxies, with half-light radii of 4, 16, and 64 pixels. Each
+filter is applied with inverse-variance weighting, so what it produces
+is the maximum-likelihood amplitude of that template divided by its own
+uncertainty: a significance image, in units of sigma. Masked pixels
+enter with zero weight rather than being excluded, so the significance
+is still defined where individual pixels are bad, and a bad column no
+longer punches a hole through the middle of a source.
 
-Detected sources must consist of a minimum number of connected pixels
-(``npixels``), each exceeding a specified threshold value in
-the convolved image. The threshold level is defined as a per-pixel
-multiple (``snr_threshold``) of the background RMS image.
+Every template is *lowered*: the mean over the kernel box is subtracted
+so that the template sums to zero. A zero-sum filter gives no response
+to a flat background, so a compact source sitting on the light of a
+larger galaxy is measured by how far it stands above that light rather
+than by the total. The box is large compared with the template it
+carries, since the scale that has to be removed is set by the
+contaminating source rather than by the source being detected.
 
-Overlapping sources are deblended using the `Photutils deblender
+Sources are then found on the per-pixel maximum over the templates.
+Because each template's image is already in units of its own noise, the
+maximum is itself a significance image, recording the best evidence any
+template can offer at that pixel. Pixels above ``snr_threshold`` in that
+single image form the detection footprint, and overlapping sources are
+separated there by the `Photutils deblender
 <https://photutils.readthedocs.io/en/latest/user_guide/segmentation.html
-#source-deblending>`_. The deblending algorithm first applies
-a multi-thresholding approach to identify potentially
-overlapping sources, then uses `watershed segmentation
-<https://en.wikipedia.org/wiki/Watershed_(image_processing)>`_ to
-separate them. For successful deblending, the sources must be separated
-enough that there is a saddle point between them. Currently, the
-``deblend`` keyword must be set to deblend sources.
+#source-deblending>`_, which applies a multi-thresholding approach and
+then `watershed segmentation
+<https://en.wikipedia.org/wiki/Watershed_(image_processing)>`_. For
+successful deblending, the sources must be separated enough that there
+is a saddle point between them. Deblending one combined image, rather than each filter separately,
+means every pixel belongs to exactly one source and no filter can claim
+a parent source enclosing several others.
+
+Each source is finally given the extent appropriate to its own kind.
+The template attaining the maximum at a source's peak is the one that
+fits it best, and the source's segment is narrowed to that template's
+significant pixels, so a star keeps a compact isophote where a galaxy
+goes out to a faint one. Segments are grown by one pixel and painted in
+order of decreasing significance, so that a fainter source cannot take
+pixels from a brighter neighbour, and any segment left with fewer than
+``npixels`` usable pixels is dropped. The template that detected each
+source and its peak significance are recorded in the catalog as
+``det_template`` and ``det_significance``. Very crowded fields can yield
+more detections than are worth measuring, so ``max_sources`` keeps only
+that many of the most significant.
 
 
 Source Photometry and Properties

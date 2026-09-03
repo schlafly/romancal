@@ -6,18 +6,22 @@ The ``source_catalog`` step has the following arguments:
 * ``--bkg_boxsize``: An integer value giving the background mesh box
   size in pixels
 
-* ``--kernel_fwhm``: A floating-point value giving the Gaussian kernel
-  FWHM in pixels
+* ``--kernel_fwhm``: A floating-point value giving the FWHM in pixels
+  of the point-source detection template
 
 * ``--snr_threshold``: A floating-point value that sets the
   signal-to-noise ratio (SNR) threshold above the background for source
   detection.
 
 * ``--npixels``: An integer value that sets the minimum number of
-  pixels in a source
+  pixels a source segment must retain to be kept, counted in the pixels
+  the photometry can use
 
 * ``--deblend``: A boolean indicating whether to deblend sources (default
-  is ``False``)
+  is ``True``)
+
+* ``--max_sources``: An integer value giving the maximum number of
+  sources to keep, retaining the most significant; zero means no limit
 
 * ``--suffix``: A string value giving the file name suffix to use for
   the output catalog file (default is ``'cat'``).

@@ -75,7 +75,7 @@ def test_significance_defined_on_masked_pixels():
     mask = np.zeros(data.shape, dtype=bool)
     mask[30, 30] = True
     wht = np.where(mask, 0.0, 1.0 / err**2)
-    num, denom2, _ = ivw_convolve(data, wht, make_gaussian_kernel(2.0), mask=mask)
+    num, denom2 = ivw_convolve(data, wht, make_gaussian_kernel(2.0), mask=mask)
     assert denom2[30, 30] > 0
     assert np.isfinite(snr_from_ivw(num, denom2)[30, 30])
 

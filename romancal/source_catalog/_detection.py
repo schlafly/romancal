@@ -8,7 +8,8 @@ import warnings
 
 
 import numpy as np
-from astropy.convolution import convolve, convolve_fft
+import scipy.signal
+from astropy.convolution import convolve
 from astropy.utils.exceptions import AstropyUserWarning
 from photutils.segmentation import SourceFinder, make_2dgaussian_kernel
 from photutils.utils.exceptions import NoDetectionsWarning
@@ -101,6 +102,20 @@ def make_segmentation_image(
     return segment_img
 
 
+# Photutils discretizes the model on a grid oversampled 10x in each axis.  For
+# a 601 px kernel that is a 6010^2 grid and two gigabytes -- the single largest
+# allocation in the step, larger than any of the convolutions it feeds.  The
+# refinement only earns its keep where a pixel spans real curvature, so bound
+# the oversampled grid instead: the small kernels keep the full factor of ten
+# and come out bit-identical, and the large ones shift by a few parts in 10^6.
+_MAX_OVERSAMPLED_GRID = 2000
+
+
+def _oversampling(size):
+    """Oversampling factor for a kernel of ``size`` pixels across."""
+    return int(np.clip(_MAX_OVERSAMPLED_GRID // size, 1, 10))
+
+
 def make_gaussian_kernel(fwhm, lower=False, size_factor=3, max_size=601):
     """
     Make a normalized 2D circular Gaussian kernel.
@@ -138,7 +153,10 @@ def make_gaussian_kernel(fwhm, lower=False, size_factor=3, max_size=601):
     """
     size = min(math.ceil(size_factor * fwhm), max_size)
     size = size + 1 if size % 2 == 0 else size  # make size be odd
-    kernel = np.asarray(make_2dgaussian_kernel(fwhm, size=size))  # sums to 1
+    kernel = np.asarray(  # sums to 1
+        make_2dgaussian_kernel(fwhm, size=size,
+                               oversampling=_oversampling(size))
+    )
 
     if lower:
         kernel = kernel - kernel.mean()
@@ -146,14 +164,67 @@ def make_gaussian_kernel(fwhm, lower=False, size_factor=3, max_size=601):
     return kernel
 
 
+def fft_convolve(data, kernel):
+    """
+    Convolve ``data`` with ``kernel``, zero-padded at the boundary.
+
+    Single precision throughout: the transforms are the bulk of this step's
+    memory, and against a double-precision transform the results agree to
+    seven digits, a millionth of the noise.  Non-finite values are zeroed
+    first, since an FFT would otherwise spread them over the whole frame.
+
+    Parameters
+    ----------
+    data : 2D `numpy.ndarray`
+        The array to convolve.
+    kernel : 2D `numpy.ndarray`
+        The convolution kernel, with odd sides so that "same" is centered.
+
+    Returns
+    -------
+    convolved : 2D `numpy.ndarray`
+        The convolved array, of the same shape as ``data``.
+    """
+    data = np.nan_to_num(np.asarray(data, dtype=np.float32),
+                         nan=0.0, posinf=0.0, neginf=0.0)
+    kernel = np.asarray(kernel, dtype=np.float32)
+    return scipy.signal.fftconvolve(data, kernel, mode="same")
+
+
+def flux_convolve(data, kernel, mask=None):
+    """
+    Unweighted convolution of the data with a template.
+
+    This is the image centroids and moments are measured on.  Kept separate
+    from `ivw_convolve` because a caller wants one or the other, never both,
+    and each convolution is expensive.
+
+    Parameters
+    ----------
+    data : 2D `numpy.ndarray`
+        Background-subtracted data.
+    kernel : 2D `numpy.ndarray`
+        The convolution kernel.
+    mask : 2D `numpy.ndarray`, optional
+        Boolean mask; True values force the data to zero.
+
+    Returns
+    -------
+    conv_flux : 2D `numpy.ndarray`
+        ``conv(data, kernel)``.
+    """
+    if mask is not None:
+        data = np.where(mask, 0.0, data)
+    return fft_convolve(data, kernel)
+
+
 def ivw_convolve(data, wht, kernel, mask=None):
     """
     Inverse-variance-weighted convolution of data with uncertainties given a template.
 
     Construction of a significance image for a matched filter requires
-    a signal and uncertainty image for each template.  This function computes these
-    as well as an unweighted convolution of the data and the kernel.
-    The ratio ``num / sqrt(denom2)`` returned by this function is the
+    a signal and uncertainty image for each template.  This function computes
+    both.  The ratio ``num / sqrt(denom2)`` returned by this function is the
     maximum-likelihood amplitude of a template kernel divided by its uncertainty,
     given some Gaussian noise.
 
@@ -177,31 +248,12 @@ def ivw_convolve(data, wht, kernel, mask=None):
         ``conv(data * wht, kernel)``.
     denom2 : 2D `numpy.ndarray`
         ``conv(wht, kernel**2)``.
-    conv_flux : 2D `numpy.ndarray`
-        ``conv(data, kernel)``, unweighted; for centroids and moments.
     """
-    # ``nan_treatment`` concerns NaNs in the data, not the kernel.  Any NaN is
-    # already zeroed through ``mask``, so filling and interpolating are
-    # equivalent here, and interpolating is undefined for a zero-sum kernel
-    # because such a kernel cannot be normalized.
-    kwargs = {
-        "normalize_kernel": False,
-        "allow_huge": True,
-        "boundary": "fill",
-        "fill_value": 0.0,
-        "nan_treatment": "fill",
-    }
     if mask is not None:
         data = np.where(mask, 0.0, data)
         wht = np.where(mask, 0.0, wht)
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", AstropyUserWarning)
-        num = convolve_fft(data * wht, kernel, **kwargs)
-        denom2 = convolve_fft(wht, kernel**2, **kwargs)
-        conv_flux = convolve_fft(data, kernel, **kwargs)
-
-    return num, denom2, conv_flux
+    return fft_convolve(data * wht, kernel), fft_convolve(wht, kernel**2)
 
 
 def snr_from_ivw(num, denom2):

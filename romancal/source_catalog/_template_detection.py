@@ -32,6 +32,7 @@ from photutils.segmentation import SegmentationImage
 
 from romancal.source_catalog._background import RomanBackground
 from romancal.source_catalog._detection import (
+    flux_convolve,
     ivw_convolve,
     make_gaussian_kernel,
     make_segmentation_image,
@@ -106,8 +107,12 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
         Note that the snr_images use a lowered kernel while
         this uses the corresponding unlowered kernel.
     """
+    # Single precision: these arrays and the transforms built from them are
+    # the bulk of the step's memory, and the data arrive in float32 anyway.
+    data = np.asarray(data, dtype=np.float32)
     good = ~mask if mask is not None else np.ones(data.shape, dtype=bool)
     wht = np.where(good, 1.0 / np.where(good, err, 1.0) ** 2, 0.0)
+    wht = wht.astype(np.float32)
 
     snr_images = []
     for fwhm in _template_fwhms(kernel_fwhm):
@@ -123,7 +128,7 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
                 f"{kernel.shape[0]} px exceeds the image"
             )
             continue
-        num, denom2, _ = ivw_convolve(data, wht, kernel, mask=mask)
+        num, denom2 = ivw_convolve(data, wht, kernel, mask=mask)
         snr_images.append(snr_from_ivw(num, denom2))
         log.info(f"Template FWHM={fwhm:.1f} px: kernel {kernel.shape[0]} px")
 
@@ -144,7 +149,7 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
     psf_kernel = make_gaussian_kernel(
         kernel_fwhm, size_factor=_MOMENT_SIZE_FACTOR
     )
-    _, _, conv_psf = ivw_convolve(data, wht, psf_kernel, mask=mask)
+    conv_psf = flux_convolve(data, psf_kernel, mask=mask)
 
     return snr_images, conv_psf
 

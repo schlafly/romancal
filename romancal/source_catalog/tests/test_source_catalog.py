@@ -585,13 +585,7 @@ def test_psf_photometry(function_jail, image_model):
 def test_nonfinite_centroid_does_not_stop_the_step(
     function_jail, image_model, monkeypatch
 ):
-    """One source with a non-finite centroid must not stop the whole step.
-
-    PSFPhotometry raises on a non-finite position, so the PSF fit is handed
-    the positions with those replaced by a far-off-image value; there the fit
-    has no data and returns NaN with its flags set, the same treatment the
-    aperture and DAOFind catalogs already give such a source.
-    """
+    """Verify that a source with a garbage guess won't crash the pipeline."""
     real = RomanSourceCatalog._xypos.fget
 
     @lazyproperty

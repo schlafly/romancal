@@ -67,11 +67,7 @@ class SourceCatalogStep(RomanStep):
         If `True`, deblend overlapping sources after detection.
 
     max_sources : int, optional
-        Keep only this many of the most significant sources; zero means
-        no limit.  A crowded field can yield far more detections than
-        are worth measuring, and the cost is superlinear: photutils'
-        `~photutils.psf.SourceGrouper` builds the full pairwise distance
-        matrix, which reaches 4 GB at 30000 sources and 12 GB at 50000.
+        Keep only this many sources, starting with the most significant.
 
     suffix : str, optional
         Suffix appended to the output filenames.  Default ``'cat'``.

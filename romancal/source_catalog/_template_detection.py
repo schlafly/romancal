@@ -49,22 +49,25 @@ log.setLevel(logging.DEBUG)
 _TEMPLATE_RE = (4.0, 16.0, 64.0)  # exponential half-light radii, pixels
 _RE_TO_FWHM = 1.678
 
-# Kernel box size, in units of the template FWHM.
-_SIZE_FACTOR = 4
+# Kernel box size for the lowered templates, in units of the template FWHM.
+# The box does double duty: it is how far into the template's wings the
+# filter reaches, and it is the scale of the background the lowering removes,
+# since the mean is taken over the same box.  The second use is what sets the
+# value.  The background scale needs to be significantly larger than the
+# template in order to not significantly reduce the template's SNR, but small
+# enough to subtract out potentially contaminating light from larger sources,
+# to avoid detecting noise fluctuations in the wings of extended sources.
+# At 12 the typical SNRs are down by a couple percent compared with unlowered
+# templates.
+_TEMPLATE_SIZE_FACTOR = 12
 
-# Background scale for the lowered templates, in units of the template FWHM.
-# These effectively subtract background light on a particular scale,
-# which needs to be significantly larger than the template in order to not
-# significantly reduce the template's SNR, but small enough to subtract out
-# potentially contaminating light from larger sources, to avoid detecting
-# noise fluctuations in the wings of extended sources.
-# At lower_scale = 10 the typical SNRs are down by a couple percent
-# compared with unlowered templates.
-_LOWER_SCALE = 12.0
+# Kernel box size for the unlowered image the moments are measured on, in
+# units of the PSF FWHM.  Nothing is being subtracted here, so the box need
+# only reach the wings.
+_MOMENT_SIZE_FACTOR = 4
 
 # Deblending contrast for the maximum image: the fraction of a parent's flux a
-# peak must hold to be split off.  Note this differs from the 1e-4 that
-# ``make_segmentation_image`` uses for its own deblending.
+# peak must hold to be split off.
 _DEBLEND_CONTRAST = 0.001
 
 # Grow each final segment by this many pixels.  We are willing to detect
@@ -74,17 +77,13 @@ _DEBLEND_CONTRAST = 0.001
 _SEGMENT_DILATE = 1
 
 # Smallest final segment to keep, counted in the pixels the photometry can
-# actually weight: unmasked, not claimed by a brighter neighbour, and positive
-# in the moment image.  Dilation grows a lone pixel to a full 3x3, so for faint
-# isolated sources this means the source must retain its 3x3 neighborhood.
-#
-# Positivity matters because photutils drops non-positive pixels before taking
-# moments, so a segment with none has no centroid and returns NaN, which later
-# stops the step at PSFPhotometry.  Counting them makes that impossible by
-# construction and restores the property main has for free: there, segments are
-# a threshold on the same image the moments come from, so every segment pixel is
-# positive by definition.
-_MIN_SEGMENT_PIXELS = 9
+# use for moment computation: unmasked, not claimed by a brighter neighbour,
+# and positive in the moment image.  This is exactly what dilation makes of a
+# lone detected pixel, so for faint isolated sources it says the source must
+# retain the whole neighbourhood dilation gave it.  It is a separate idea from
+# the step's ``npixels``, which is the smallest deblended child allowed in the
+# maximum image, before dilation and with no reference to the moments.
+_MIN_SEGMENT_PIXELS = (2 * _SEGMENT_DILATE + 1) ** 2
 
 
 def _template_fwhms(kernel_fwhm):
@@ -122,7 +121,7 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
     snr_images = []
     for fwhm in _template_fwhms(kernel_fwhm):
         kernel = make_gaussian_kernel(
-            fwhm, lower_scale=_LOWER_SCALE, size_factor=_SIZE_FACTOR
+            fwhm, lower=True, size_factor=_TEMPLATE_SIZE_FACTOR
         )
         if kernel.shape[0] > min(data.shape):
             # kernel plus its background-subtraction surround is wider than
@@ -144,11 +143,16 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
         )
         return [], None
 
-    # Centroids and moments are measured on an unlowered convolution: the one
-    # image serves every segment whatever template detected it, and a lowered
-    # one can be negative over a whole footprint where the local mean is
-    # dominated by crowd or galaxy light, leaving the moments undefined.
-    psf_kernel = make_gaussian_kernel(kernel_fwhm, size_factor=_SIZE_FACTOR)
+    # Centroids and moments are measured on an unlowered PSF-convolved
+    # image.
+    # it may make more sense in the future to use a lowered image
+    # where a PSF riding on the background of a galaxy won't have its
+    # moments corrupted by the background, but we would need to be
+    # more careful about defining what pixels go to what segments
+    # to make use of this
+    psf_kernel = make_gaussian_kernel(
+        kernel_fwhm, size_factor=_MOMENT_SIZE_FACTOR
+    )
     _, _, conv_psf = ivw_convolve(data, wht, psf_kernel, mask=mask)
 
     return snr_images, conv_psf
@@ -158,9 +162,7 @@ def _max_detection_image(snr_images):
     """
     Per-pixel maximum over the templates' significance images.
 
-    Each input is already in units of its own background noise, so they are
-    directly comparable and the maximum is itself a significance image: the
-    best evidence any template can offer at that pixel.
+    Each input is already in units of its own background noise.
 
     Parameters
     ----------
@@ -188,16 +190,17 @@ def _max_detection_image(snr_images):
 
 
 def _assign_segments(deblended, max_image, template_at_pixel, footprints,
-                     moment_image, shape, mask=None, dilate=_SEGMENT_DILATE,
+                     moment_image, mask=None, dilate=_SEGMENT_DILATE,
                      max_sources=0):
     """
     Turn deblended segments into the final segmentation image.
 
     Start with a set of segments derived from the max_image, and refine
     those by looping over segments in order of their peak SNR.  For each
-    segment, find the template that corresponds to it, and extract the
-    corresponding segment derived from that SNR image.  Intersect it
-    with the max_image SNR image and paint it onto final derived
+    segment, find the template that corresponds to it, intersect the
+    max_image segment with the significant regions from the corresponding
+    template, essentially narrowing the segment to what would have been found
+    using that template only.  Paint the intersection onto the final derived
     segmentation image, after dilating.  Later lower SNR segments
     cannot overwrite pixels claimed by an earlier segment, and are dropped
     if they end up with fewer than _MIN_SEGMENT_PIXELS pixels the photometry
@@ -220,12 +223,8 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
     moment_image : 2D `numpy.ndarray`
         The image the moments will be measured on.  Only its sign is used, to
         count the pixels a segment contributes to its own centroid.
-    shape : tuple
-        Shape of the output segmentation image.
     mask : 2D `numpy.ndarray`, optional
-        Boolean mask indicating bad pixels.  Masked pixels stay inside a
-        segment, so that a bad column does not cut a segment into two.  However,
-        masked pixels do not count towards the minimum segment size.
+        Boolean mask indicating bad pixels.
     dilate : int, optional
         Grow each segment by this many pixels before painting.
     max_sources : int, optional
@@ -244,16 +243,14 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
     significance : 1D `numpy.ndarray`
     """
     labels = np.asarray(deblended.data)
+    shape = labels.shape
     structure = np.ones((3, 3), dtype=bool)
-    # Exactly the pixels photutils will weight: it zeroes both the non-finite
-    # and the non-positive ones before taking moments.  ``> 0`` alone would
-    # count a +inf pixel that photutils discards, and a segment holding only
-    # those would pass the size cut and still have no centroid.
+
+    # for a pixel to contribute to a moment it needs to be in a segment
+    # with a finite, positive value; select these
     moment_positive = np.isfinite(moment_image) & (moment_image > 0)
 
-    # Each segment's peak, and the template that wins there.  The winning
-    # template is the argmax, so the maximum image at the peak *is* that
-    # template's significance -- there is nothing further to divide by.
+    # Collect each segment's peak and the template that wins there.
     candidates = []
     for label, slices in enumerate(scipy.ndimage.find_objects(labels), start=1):
         if slices is None:
@@ -273,9 +270,9 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
     candidates.sort(key=lambda item: -item[0])
 
     merged = np.zeros(shape, dtype=np.int32)
-    # ``claimed`` tracks every pixel a source has taken, masked or not, so a
-    # later source cannot dilate into a brighter one's masked core.  Only the
-    # unmasked pixels are painted into the segmentation image itself.
+    # 'claimed' tracks every pixel a source has taken, independent of
+    # the mask.  It differs from merged in that merged contains only
+    # the unmasked pixels.
     claimed = np.zeros(shape, dtype=bool)
     template_index = []
     significance = []
@@ -288,9 +285,8 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
         if max_sources and n_label >= max_sources:
             # Allow early termination for crowded fields if requested, keeping
             # the bright sources.
-            # Candidates consumed so far are the ones painted plus the ones
-            # dropped, not max_sources alone.
             n_capped = len(candidates) - n_label - n_dropped
+            # n_capped = the number of sources skipped due to the cap
             break
 
         # pad to allow segment dilation
@@ -309,13 +305,10 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
         ] = inside
 
         # Narrow to the isophote of the template that fits this source, so a
-        # star keeps the compact PSF isophote rather than the inflated one a
-        # wide template draws.  The segment supplies the isolation (segments
-        # are disjoint) and the footprint supplies only the extent, so a
-        # binary footprint suffices and no cross-template matching is needed.
-        # The peak is always inside its own template's footprint -- winning
-        # the maximum there means exceeding that template's threshold -- so
-        # this can never empty the segment.
+        # star keeps the compact PSF isophote rather than the inflated one from
+        # max_image.
+        # The peak significance is always inside its template footprint,
+        # since being the maximum in the segment defines the winning template
         local &= footprints[index][window]
 
         # dilate local segment
@@ -341,14 +334,11 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
                 local = pieces == keep
                 n_trimmed += 1
 
-        # Connectivity is judged on the mask-inclusive footprint above, so a
-        # masked stripe through a source does not split it; membership is the
-        # unmasked pixels, so the segmentation image never claims a pixel the
-        # photometry cannot use.
+        # add the bad pixel mask, which had been left off intentionally
+        # so that masked pixels could not split segments into islands
         usable = local if mask is None else local & ~mask[window]
-        # Membership is every unmasked pixel, but only the ones positive in
-        # the moment image carry weight when the moments are taken, so those
-        # are what the size cut counts.
+        # count only usable pixels that can be used for computing moments
+        # so that moment computation cannot fail
         if int((usable & moment_positive[window]).sum()) < _MIN_SEGMENT_PIXELS:
             n_dropped += 1
             continue
@@ -452,9 +442,8 @@ def make_segmentation_image_template(
     max_image, template_at_pixel = _max_detection_image(snr_images)
     max_image = np.where(np.isfinite(max_image), max_image, 0.0)
 
-    # Detection and deblending on that single image, using the pipeline's own
-    # segmentation helper.  A unit background RMS is passed because the image
-    # is already in sigma.
+    # Detection and deblending on the maximum significance image
+    # A unit background RMS is passed because the image is already in sigma.
     deblended = make_segmentation_image(
         max_image,
         snr_threshold,
@@ -474,7 +463,6 @@ def make_segmentation_image_template(
         template_at_pixel,
         footprints,
         conv_psf,
-        data.shape,
         mask=mask,
         max_sources=max_sources,
     )

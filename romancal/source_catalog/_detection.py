@@ -101,7 +101,7 @@ def make_segmentation_image(
     return segment_img
 
 
-def make_gaussian_kernel(fwhm, lower_scale=0.0, size_factor=3, max_size=601):
+def make_gaussian_kernel(fwhm, lower=False, size_factor=3, max_size=601):
     """
     Make a normalized 2D circular Gaussian kernel.
 
@@ -110,40 +110,37 @@ def make_gaussian_kernel(fwhm, lower_scale=0.0, size_factor=3, max_size=601):
     fwhm : float
         Full-width at half-maximum of the Gaussian, in pixels.
     size_factor : int, optional
-        Kernel box size as a multiple of ``fwhm`` (before any enlargement
-        for ``lower_scale``).  The default of 3 matches the convention used
-        elsewhere in the pipeline; the template detection uses 4 so that a
-        lowered kernel's negative surround is not truncated.
-    lower_scale : float, optional
-        If greater than zero, return a "lowered" (zero-sum) kernel
+        Kernel box size as a multiple of ``fwhm``.  It does double duty: it
+        sets how far into the Gaussian's wings the template reaches, and,
+        when ``lower`` is set, it is also the scale of the background being
+        removed, since the mean is taken over this same box.  Reaching the
+        wings needs only a few FWHM; removing a background needs a box wide
+        enough to hold the structure being removed, which is much larger, so
+        a lowered kernel wants the larger value.  The default of 3 matches
+        the convention used elsewhere in the pipeline.
+    lower : bool, optional
+        If `True`, return a "lowered" (zero-sum) kernel
 
             k' = k - mean(k)
 
-        over a box ``lower_scale * fwhm`` across, i.e. the matched filter
-        for a source plus an unknown background constant on that scale.  A
-        zero-sum kernel gives no response to a flat background, so a
-        compact source riding on a larger object's light keeps only the
-        smaller source's addition over the background.  The box *is* the
-        background scale, so the kernel is enlarged to hold it, capped at
-        ``max_size``.
+        i.e. the matched filter for a source plus an unknown background
+        constant over the kernel box.  A zero-sum kernel gives no response
+        to a flat background, so a compact source riding on a larger
+        object's light keeps only the smaller source's addition over the
+        background.
     max_size : int, optional
         Largest kernel size, in pixels.
 
     Returns
     -------
     kernel : 2D `numpy.ndarray`
-        The kernel array.  Sums to 1, or to 0 when ``lower_scale > 0``.
+        The kernel array.  Sums to 1, or to 0 when ``lower`` is set.
     """
-    size = math.ceil(size_factor * fwhm)
-    if lower_scale > 0:
-        # the box *is* the background scale, so it need only be as wide
-        # as the structure to be removed
-        size = min(math.ceil(lower_scale * fwhm), max_size)
-        size = max(size, math.ceil(size_factor * fwhm))
+    size = min(math.ceil(size_factor * fwhm), max_size)
     size = size + 1 if size % 2 == 0 else size  # make size be odd
     kernel = np.asarray(make_2dgaussian_kernel(fwhm, size=size))  # sums to 1
 
-    if lower_scale > 0:
+    if lower:
         kernel = kernel - kernel.mean()
 
     return kernel

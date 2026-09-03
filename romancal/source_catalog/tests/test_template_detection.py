@@ -13,8 +13,8 @@ from romancal.source_catalog._detection import (
     snr_from_ivw,
 )
 from romancal.source_catalog._template_detection import (
-    _LOWER_SCALE,
-    _SIZE_FACTOR,
+    _MOMENT_SIZE_FACTOR,
+    _TEMPLATE_SIZE_FACTOR,
     _template_fwhms,
     make_segmentation_image_template,
 )
@@ -57,13 +57,13 @@ def _detect(data, err, mask=None, **kwargs):
 
 def test_lowered_kernel_is_zero_sum():
     """A lowered kernel gives no response to a flat background."""
-    plain = make_gaussian_kernel(2.0, size_factor=_SIZE_FACTOR)
+    plain = make_gaussian_kernel(2.0, size_factor=_MOMENT_SIZE_FACTOR)
     lowered = make_gaussian_kernel(
-        2.0, lower_scale=_LOWER_SCALE, size_factor=_SIZE_FACTOR
+        2.0, lower=True, size_factor=_TEMPLATE_SIZE_FACTOR
     )
     assert np.isclose(plain.sum(), 1.0)
     assert abs(lowered.sum()) < 1e-8
-    assert lowered.shape[0] > plain.shape[0]  # room for the background subtraction kernel
+    assert lowered.shape[0] > plain.shape[0]  # room for the background box
     # the SNR loss is small
     assert np.sqrt((lowered**2).sum()) / np.sqrt((plain**2).sum()) > 0.9
 

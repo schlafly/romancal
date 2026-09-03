@@ -629,10 +629,11 @@ class RomanSourceCatalog:
         )
 
     def _make_psf_cat(self):
-        # The finite positions: PSFPhotometry raises on a non-finite one, which
-        # would stop the step over a single bad source.  At -1000 the fit has
-        # no data to work with and returns NaN with its flags set, matching how
-        # the aperture and DAOFind catalogs treat the same sources.
+        # ``_xypos_finite`` is row-for-row ``_xypos`` with any non-finite
+        # entry replaced by -1000; nothing is dropped or relabelled.  A source
+        # sitting there simply has no data under it, so photutils returns NaN
+        # and sets its flags rather than raising, which is what the aperture
+        # and DAOFind catalogs already rely on.
         return _PSFCatalog(
             self.model,
             self.psf_model,

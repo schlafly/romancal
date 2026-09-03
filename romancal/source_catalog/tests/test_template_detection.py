@@ -21,16 +21,22 @@ from romancal.source_catalog._template_detection import (
 
 @pytest.fixture
 def wide_image():
-    """A frame large enough for the whole template bank, with sources
-    spanning the range of template sizes plus a close pair."""
-    shape = (700, 700)
+    """A frame with sources spanning the template sizes, plus a close pair.
+
+    Sized to admit every template whose scale a source here actually probes:
+    the widest source is 28 px FWHM, so the 330 px frame takes the PSF,
+    exp_small and exp_mid kernels (25, 81 and 323 px) and skips exp_large,
+    whose 601 px kernel would demand a frame four times the area to filter
+    for a scale nothing in the image has.
+    """
+    shape = (330, 330)
     yy, xx = np.mgrid[0 : shape[0], 0 : shape[1]]
     sources = (
-        Gaussian2D(300.0, 150, 150, 0.85, 0.85),  # point source
-        Gaussian2D(60.0, 350, 150, 3.0, 3.0),  # small galaxy
-        Gaussian2D(12.0, 150, 380, 12.0, 12.0),  # large galaxy
-        Gaussian2D(200.0, 520, 500, 0.85, 0.85),  # close pair, bright
-        Gaussian2D(200.0, 536, 500, 0.85, 0.85),  # close pair, companion
+        Gaussian2D(300.0, 70, 70, 0.85, 0.85),  # point source
+        Gaussian2D(60.0, 170, 70, 3.0, 3.0),  # small galaxy
+        Gaussian2D(12.0, 70, 190, 12.0, 12.0),  # large galaxy
+        Gaussian2D(200.0, 250, 240, 0.85, 0.85),  # close pair, bright
+        Gaussian2D(200.0, 266, 240, 0.85, 0.85),  # close pair, companion
     )
     data = sum(src(xx, yy) for src in sources).astype("float32")
     rng = np.random.default_rng(seed=42)
@@ -98,8 +104,8 @@ def test_detects_sources_of_each_size(wide_image):
 
     # the point source and the large galaxy are not assigned the same template
     labels = np.asarray(segment_img.data)
-    point = template_index[labels[150, 150] - 1]
-    extended = template_index[labels[380, 150] - 1]
+    point = template_index[labels[70, 70] - 1]
+    extended = template_index[labels[190, 70] - 1]
     assert point < extended
 
 
@@ -128,8 +134,8 @@ def test_close_pair_is_deblended(wide_image):
     data, err = wide_image
     segment_img, _, _, _ = _detect(data, err)
     labels = np.asarray(segment_img.data)
-    assert labels[500, 520] != labels[500, 536]
-    assert labels[500, 520] > 0 and labels[500, 536] > 0
+    assert labels[240, 250] != labels[240, 266]
+    assert labels[240, 250] > 0 and labels[240, 266] > 0
 
 
 def test_masked_stripe_does_not_split_a_segment(wide_image):
@@ -140,16 +146,16 @@ def test_masked_stripe_does_not_split_a_segment(wide_image):
 
     data, err = wide_image
     mask = np.zeros(data.shape, dtype=bool)
-    mask[375:386, 150] = True  # a stripe across the large galaxy
+    mask[185:196, 70] = True  # a stripe across the large galaxy
 
     segment_img, _, _, _ = _detect(data, err, mask=mask)
     assert segment_img is not None
     labels = np.asarray(segment_img.data)
 
     # the masked pixels themselves are not claimed by any source ...
-    assert labels[378, 150] == 0
+    assert labels[188, 70] == 0
     # ... but the source is one label, not two, on either side of the stripe
-    above, below = labels[372, 150], labels[389, 150]
+    above, below = labels[182, 70], labels[199, 70]
     assert above > 0
     assert above == below
 

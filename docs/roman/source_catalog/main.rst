@@ -31,49 +31,63 @@ assigns an integer label to each pixel in an image, such that pixels
 with the same label correspond to the same source. Source extraction is
 then performed using the `Photutils segmentation <https://photutils.readthedocs.io/en/latest/user_guide/segmentation.html>`_ tools.
 
-The background-subtracted image is filtered with a bank of matched
-filters rather than a single kernel, so that sources of different sizes
-are each detected by a template close to their own scale. The bank holds
-a point-source template, a Gaussian whose FWHM is set by the
+We convolve the background-subtracted image with a variety of templates
+corresponding to different sizes of sources, using a matched filter
+approach that provides the optimal SNR for matching sources.  The
+templates include a pseudo point-source profile, a Gaussian whose FWHM
+is set by the
 ``kernel_fwhm`` parameter, together with three larger templates standing
 in for galaxies, with half-light radii of 4, 16, and 64 pixels. Each
-filter is applied with inverse-variance weighting, so what it produces
-is the maximum-likelihood amplitude of that template divided by its own
-uncertainty: a significance image, in units of sigma. Masked pixels
-enter with zero weight rather than being excluded, so the significance
-is still defined where individual pixels are bad, and a bad column no
-longer punches a hole through the middle of a source.
+filter is applied with inverse-variance weighting, so it produces
+the maximum-likelihood amplitude of that template divided by its own
+uncertainty: a signal-to-noise ratio image.  These SNR images are further
+normalized by their empirical RMS in order to account for calibration
+errors in the uncertainty maps; these normalizations tend to be around one
+for small kernels and larger for large extended profiles which are more sensitive
+and where leakage of halo light from sources into the background images
+is more prominent.  Masked pixels are used in the SNR images but assigned
+zero weight, so the SNR image
+is still defined where individual pixels are bad; for example, the saturated core
+of a bright star has a well defined value in the SNR image.
 
-Every template is *lowered*: the mean over the kernel box is subtracted
-so that the template sums to zero. A zero-sum filter gives no response
-to a flat background, so a compact source sitting on the light of a
-larger galaxy is measured by how far it stands above that light rather
-than by the total. The box is large compared with the template it
-carries, since the scale that has to be removed is set by the
-contaminating source rather than by the source being detected.
+Before each convolution a local background is subtracted, estimated at a
+scale set by that template, in order to make the point source SNR image
+less sensitive to the wings of nearby galaxies.  The background is measured
+on the direct image using `Photutils Background2D
+<https://photutils.readthedocs.io/en/latest/api/photutils.background.Background2D.html>`_,
+which takes a sigma-clipped median in boxes four times the template FWHM
+across and then median-filters that mesh over a three-by-three window of
+boxes, so the scale actually removed is about twelve template FWHM.  This
+is the same estimator the step uses to subtract the sky, at a box set by
+the template rather than by ``bkg_boxsize``.  It is
+measured on the pixels rather than on the convolved image because a
+convolution spreads a single corrupt pixel over the whole kernel footprint,
+where a median can no longer reject it.
 
-Sources are then found on the per-pixel maximum over the templates.
-Because each template's image is already in units of its own noise, the
-maximum is itself a significance image, recording the best evidence any
-template can offer at that pixel. Pixels above ``snr_threshold`` in that
-single image form the detection footprint, and overlapping sources are
+Sources are then found on the per-pixel maximum over the SNR images.
+This maximum is itself an SNR image, recording the best SNR any
+template can offer at each pixel. Pixels above ``snr_threshold`` in the
+max SNR image form the detection footprint, and overlapping sources are
 separated there by the `Photutils deblender
 <https://photutils.readthedocs.io/en/latest/user_guide/segmentation.html
 #source-deblending>`_, which applies a multi-thresholding approach and
 then `watershed segmentation
 <https://en.wikipedia.org/wiki/Watershed_(image_processing)>`_. For
-successful deblending, the sources must be separated enough that there
-is a saddle point between them. Deblending one combined image, rather than each filter separately,
-means every pixel belongs to exactly one source and no filter can claim
-a parent source enclosing several others.
+successful deblending, sources must be separated enough that there
+is a saddle point between them.  Because we deblend one combined max SNR image,
+rather than each filter separately, every pixel belongs to at most
+one source and we avoid challenges surrounding harmonizing multiple sets
+of overlapping catalog sources detected on different filters.
 
-Each source is finally given the extent appropriate to its own kind.
-The template attaining the maximum at a source's peak is the one that
-fits it best, and the source's segment is narrowed to that template's
-significant pixels, so a star keeps a compact isophote where a galaxy
-goes out to a faint one. Segments are grown by one pixel and painted in
-order of decreasing significance, so that a fainter source cannot take
-pixels from a brighter neighbour, and any segment left with fewer than
+Each source is then given a segment that extends out to an isophote
+appropriate to the template that achieved the highest SNR for that source.
+The segment derived from the max SNR image is intersected with the isophote
+corresponding to the SNR image for its peak template.  This leads stars
+to keep compact isophotes while galaxies extend to fainter isophotes.
+These intersected segments are then grown by one pixel and accumulated
+onto an overall segmentation image in
+order of decreasing significance.  The first segment to claim a pixel
+(the most significant one) retains it throughout the accumulation.  Any segment left with fewer than
 ``npixels`` usable pixels is dropped. The template that detected each
 source and its peak significance are recorded in the catalog as
 ``det_template`` and ``det_significance``. Very crowded fields can yield

@@ -10,12 +10,13 @@ The ``source_catalog`` step has the following arguments:
   of the point-source detection template
 
 * ``--snr_threshold``: A floating-point value that sets the
-  signal-to-noise ratio (SNR) threshold above the background for source
+  signal-to-noise ratio threshold above the background for source
   detection.
 
 * ``--npixels``: An integer value that sets the minimum number of
-  pixels a source segment must retain to be kept, counted in the pixels
-  the photometry can use
+  pixels a source segment must retain to be kept, counting only the
+  unmasked pixels that are positive in the convolved image the moments
+  are measured on
 
 * ``--deblend``: A boolean indicating whether to deblend sources (default
   is ``True``)

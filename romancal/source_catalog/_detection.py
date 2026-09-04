@@ -6,7 +6,6 @@ import logging
 import math
 import warnings
 
-
 import numpy as np
 import scipy.signal
 from astropy.convolution import convolve
@@ -53,7 +52,12 @@ def convolve_data(data, kernel_fwhm, size=None, mask=None):
 
 
 def make_segmentation_image(
-    convolved_data, snr_threshold, n_pixels, bkg_rms, deblend=False, mask=None,
+    convolved_data,
+    snr_threshold,
+    n_pixels,
+    bkg_rms,
+    deblend=False,
+    mask=None,
     deblend_contrast=1e-4,
 ):
     """
@@ -87,9 +91,7 @@ def make_segmentation_image(
         # suppress NoDetectionsWarning from photutils
         warnings.filterwarnings("ignore", category=NoDetectionsWarning)
 
-        finder = SourceFinder(
-            n_pixels, deblend=deblend, contrast=deblend_contrast
-        )
+        finder = SourceFinder(n_pixels, deblend=deblend, contrast=deblend_contrast)
         threshold = snr_threshold * bkg_rms
         segment_img = finder(convolved_data, threshold, mask=mask)
 
@@ -102,21 +104,17 @@ def make_segmentation_image(
     return segment_img
 
 
-# Photutils discretizes the model on a grid oversampled 10x in each axis.  For
-# a 601 px kernel that is a 6010^2 grid and two gigabytes -- the single largest
-# allocation in the step, larger than any of the convolutions it feeds.  The
-# refinement only earns its keep where a pixel spans real curvature, so bound
-# the oversampled grid instead: the small kernels keep the full factor of ten
-# and come out bit-identical, and the large ones shift by a few parts in 10^6.
-_MAX_OVERSAMPLED_GRID = 2000
+# photutils discretizes the kernel on a grid oversampled 10x in each axis.
+# This can dominate the memory usage for large kernels; this parameter
+# limits the size of the oversampled grid photutils builds.
 
 
-def _oversampling(size):
+def _oversampling(size, max_oversampled_grid=2000):
     """Oversampling factor for a kernel of ``size`` pixels across."""
-    return int(np.clip(_MAX_OVERSAMPLED_GRID // size, 1, 10))
+    return int(np.clip(max_oversampled_grid // size, 1, 10))
 
 
-def make_gaussian_kernel(fwhm, lower=False, size_factor=3, max_size=601):
+def make_gaussian_kernel(fwhm, size_factor=4, max_size=601):
     """
     Make a normalized 2D circular Gaussian kernel.
 
@@ -125,53 +123,28 @@ def make_gaussian_kernel(fwhm, lower=False, size_factor=3, max_size=601):
     fwhm : float
         Full-width at half-maximum of the Gaussian, in pixels.
     size_factor : int, optional
-        Kernel box size as a multiple of ``fwhm``.  It does double duty: it
-        sets how far into the Gaussian's wings the template reaches, and,
-        when ``lower`` is set, it is also the scale of the background being
-        removed, since the mean is taken over this same box.  Reaching the
-        wings needs only a few FWHM; removing a background needs a box wide
-        enough to hold the structure being removed, which is much larger, so
-        a lowered kernel wants the larger value.  The default of 3 matches
-        the convention used elsewhere in the pipeline.
-    lower : bool, optional
-        If `True`, return a "lowered" (zero-sum) kernel
-
-            k' = k - mean(k)
-
-        i.e. the matched filter for a source plus an unknown background
-        constant over the kernel box.  A zero-sum kernel gives no response
-        to a flat background, so a compact source riding on a larger
-        object's light keeps only the smaller source's addition over the
-        background.
+        Kernel box size as a multiple of ``fwhm``.
     max_size : int, optional
         Largest kernel size, in pixels.
 
     Returns
     -------
     kernel : 2D `numpy.ndarray`
-        The kernel array.  Sums to 1, or to 0 when ``lower`` is set.
+        The kernel array, summing to 1.
     """
     size = min(math.ceil(size_factor * fwhm), max_size)
     size = size + 1 if size % 2 == 0 else size  # make size be odd
-    kernel = np.asarray(  # sums to 1
-        make_2dgaussian_kernel(fwhm, size=size,
-                               oversampling=_oversampling(size))
+    return np.asarray(  # sums to 1
+        make_2dgaussian_kernel(fwhm, size=size, oversampling=_oversampling(size))
     )
 
-    if lower:
-        kernel = kernel - kernel.mean()
 
-    return kernel
-
-
-def fft_convolve(data, kernel):
+def fft_convolve(data, kernel, mask=None):
     """
     Convolve ``data`` with ``kernel``, zero-padded at the boundary.
 
-    Single precision throughout: the transforms are the bulk of this step's
-    memory, and against a double-precision transform the results agree to
-    seven digits, a millionth of the noise.  Non-finite values are zeroed
-    first, since an FFT would otherwise spread them over the whole frame.
+    This uses single precision to conserve memory and fills NaNs to zeros
+    before convolution.
 
     Parameters
     ----------
@@ -179,43 +152,21 @@ def fft_convolve(data, kernel):
         The array to convolve.
     kernel : 2D `numpy.ndarray`
         The convolution kernel, with odd sides so that "same" is centered.
+    mask : 2D `numpy.ndarray`, optional
+        Boolean mask; where True, data is zeroed before convolution.
 
     Returns
     -------
     convolved : 2D `numpy.ndarray`
         The convolved array, of the same shape as ``data``.
     """
-    data = np.nan_to_num(np.asarray(data, dtype=np.float32),
-                         nan=0.0, posinf=0.0, neginf=0.0)
-    kernel = np.asarray(kernel, dtype=np.float32)
-    return scipy.signal.fftconvolve(data, kernel, mode="same")
-
-
-def flux_convolve(data, kernel, mask=None):
-    """
-    Unweighted convolution of the data with a template.
-
-    This is the image centroids and moments are measured on.  Kept separate
-    from `ivw_convolve` because a caller wants one or the other, never both,
-    and each convolution is expensive.
-
-    Parameters
-    ----------
-    data : 2D `numpy.ndarray`
-        Background-subtracted data.
-    kernel : 2D `numpy.ndarray`
-        The convolution kernel.
-    mask : 2D `numpy.ndarray`, optional
-        Boolean mask; True values force the data to zero.
-
-    Returns
-    -------
-    conv_flux : 2D `numpy.ndarray`
-        ``conv(data, kernel)``.
-    """
     if mask is not None:
         data = np.where(mask, 0.0, data)
-    return fft_convolve(data, kernel)
+    data = np.nan_to_num(
+        np.asarray(data, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0
+    )
+    kernel = np.asarray(kernel, dtype=np.float32)
+    return scipy.signal.fftconvolve(data, kernel, mode="same")
 
 
 def ivw_convolve(data, wht, kernel, mask=None):
@@ -228,8 +179,7 @@ def ivw_convolve(data, wht, kernel, mask=None):
     maximum-likelihood amplitude of a template kernel divided by its uncertainty,
     given some Gaussian noise.
 
-    Masked pixels enter with zero weight and are not excluded,
-    so the result is defined on masked pixels.
+    Masked pixels enter the convolution with zero weight so the result is defined on masked pixels.
 
     Parameters
     ----------
@@ -249,11 +199,10 @@ def ivw_convolve(data, wht, kernel, mask=None):
     denom2 : 2D `numpy.ndarray`
         ``conv(wht, kernel**2)``.
     """
-    if mask is not None:
-        data = np.where(mask, 0.0, data)
-        wht = np.where(mask, 0.0, wht)
-
-    return fft_convolve(data * wht, kernel), fft_convolve(wht, kernel**2)
+    return (
+        fft_convolve(data * wht, kernel, mask=mask),
+        fft_convolve(wht, kernel**2, mask=mask),
+    )
 
 
 def snr_from_ivw(num, denom2):

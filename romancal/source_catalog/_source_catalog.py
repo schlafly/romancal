@@ -630,10 +630,9 @@ class RomanSourceCatalog:
 
     def _make_psf_cat(self):
         # ``_xypos_finite`` is row-for-row ``_xypos`` with any non-finite
-        # entry replaced by -1000; nothing is dropped or relabelled.  A source
-        # sitting there simply has no data under it, so photutils returns NaN
-        # and sets its flags rather than raising, which is what the aperture
-        # and DAOFind catalogs already rely on.
+        # entry replaced by -1000.  A position off the image is handled
+        # without crashing: photutils returns NaN and sets the source's
+        # flags.  A non-finite position raises.
         return _PSFCatalog(
             self.model,
             self.psf_model,

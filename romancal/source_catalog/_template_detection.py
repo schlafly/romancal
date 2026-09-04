@@ -20,11 +20,15 @@ that with the set of significant pixels belonging to the template that
 generated the peak.  So PSFs end up going out to isophotes appropriate
 for PSFs and large galaxies go deeper.
 
-Additionally we use 'lowered' templates that sum to zero to prevent
-small kernels from firing when they ride on a background of a large source.
+Additionally, before each convolution we subtract a local background
+estimated at a scale set by that template, so that a small kernel does not
+fire merely because it rides on the light of a large source.  The background
+is a sigma-clipped median of the pixels rather than a mean, so that a single
+corrupt pixel cannot move it.
 """
 
 import logging
+import math
 
 import numpy as np
 import scipy.ndimage
@@ -32,7 +36,7 @@ from photutils.segmentation import SegmentationImage
 
 from romancal.source_catalog._background import RomanBackground
 from romancal.source_catalog._detection import (
-    flux_convolve,
+    fft_convolve,
     ivw_convolve,
     make_gaussian_kernel,
     make_segmentation_image,
@@ -50,25 +54,35 @@ log.setLevel(logging.DEBUG)
 _TEMPLATE_RE = (4.0, 16.0, 64.0)  # exponential half-light radii, pixels
 _RE_TO_FWHM = 1.678
 
-# Kernel box size for the lowered templates, in units of the template FWHM.
-# The box does double duty: it is how far into the template's wings the
-# filter reaches, and it is the scale of the background the lowering removes,
-# since the mean is taken over the same box.  The second use is what sets the
-# value.  The background scale needs to be significantly larger than the
-# template in order to not significantly reduce the template's SNR, but small
-# enough to subtract out potentially contaminating light from larger sources,
-# to avoid detecting noise fluctuations in the wings of extended sources.
-# At 12 the typical SNRs are down by a couple percent compared with unlowered
-# templates.
-_TEMPLATE_SIZE_FACTOR = 12
+# Kernel box size for the templates, in units of the template FWHM.  The
+# kernel only has to reach the template's wings, so a few FWHM is enough.
+_TEMPLATE_SIZE_FACTOR = 4
 
-# Kernel box size for the unlowered image the moments are measured on, in
-# units of the PSF FWHM.  Nothing is being subtracted here, so the box need
-# only reach the wings.
+# Local background scale for each template, as a multiple of its FWHM.
+# ``RomanBackground`` medians the pixels in boxes of this size and then
+# medians that mesh again over a 3x3 window, so the scale it actually
+# removes is about three boxes: a factor of four here subtracts a background
+# over ~12 FWHM.
+#
+# This is the same operator the step already uses to subtract the sky, only
+# at a smaller box: ``RomanBackground`` either way, so the same sigma clip,
+# median estimator and 3x3 mesh filter.  The sky runs at ``bkg_boxsize``,
+# 1000 px by default, removing structure on ~3000 px.  These scales are set
+# by the templates rather than by that parameter, deliberately.  The largest
+# template lands within a factor of two or three of the sky scale and so
+# partly does that job twice, which costs nothing: source counts on an HLWAS
+# frame move by 7 in 1800 across a factor of eight in this box.  The box is
+# always a pixel smaller than the template's kernel, which is already
+# required to fit the image, so it needs no bound of its own.
+_BKG_BOX_FACTOR = 4
+
+# Kernel box size for the image the moments are measured on, in units of the
+# PSF FWHM.  Nothing is being subtracted here, so the box need only enclose
+# most of the flux.
 _MOMENT_SIZE_FACTOR = 4
 
-# Deblending contrast for the maximum image: the fraction of a parent's flux a
-# peak must hold to be split off.
+# Deblending contrast for the maximum image; children must hold at least this
+# fraction of a parent's flux to be deblended.
 _DEBLEND_CONTRAST = 0.001
 
 # Grow each final segment by this many pixels.  We are willing to detect
@@ -80,7 +94,12 @@ _SEGMENT_DILATE = 1
 
 def _template_fwhms(kernel_fwhm):
     """Template FWHMs in pixels, PSF first."""
-    return (float(kernel_fwhm),) + tuple(_RE_TO_FWHM * re for re in _TEMPLATE_RE)
+    return (float(kernel_fwhm), *(_RE_TO_FWHM * re for re in _TEMPLATE_RE))
+
+
+def _bkg_box_size(fwhm):
+    """Background mesh box size, in pixels, for a template of this FWHM."""
+    return max(math.ceil(_BKG_BOX_FACTOR * fwhm), 1)
 
 
 def make_template_snr_images(data, err, kernel_fwhm, mask=None):
@@ -101,14 +120,15 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
     Returns
     -------
     snr_images : list of 2D `numpy.ndarray`
-        One matched-filter SNR image per template.
+        One matched-filter SNR image per template, each computed after
+        subtracting a local background at that template's own scale.
     conv_psf : 2D `numpy.ndarray`
-        The PSF-convolved flux image, for centroids and moments.
-        Note that the snr_images use a lowered kernel while
-        this uses the corresponding unlowered kernel.
+        The PSF-convolved flux image, for centroids and moments.  No
+        background is subtracted from this one; see the note at the call
+        site.
     """
-    # Single precision: these arrays and the transforms built from them are
-    # the bulk of the step's memory, and the data arrive in float32 anyway.
+    # we use single precision here because these arrays and the transforms built
+    # from them are the bulk of the step's memory.
     data = np.asarray(data, dtype=np.float32)
     good = ~mask if mask is not None else np.ones(data.shape, dtype=bool)
     wht = np.where(good, 1.0 / np.where(good, err, 1.0) ** 2, 0.0)
@@ -116,21 +136,30 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
 
     snr_images = []
     for fwhm in _template_fwhms(kernel_fwhm):
-        kernel = make_gaussian_kernel(
-            fwhm, lower=True, size_factor=_TEMPLATE_SIZE_FACTOR
-        )
+        kernel = make_gaussian_kernel(fwhm, size_factor=_TEMPLATE_SIZE_FACTOR)
         if kernel.shape[0] > min(data.shape):
-            # kernel plus its background-subtraction surround is wider than
-            # the image, so the kernel is all boundary.  Triggered by cutouts
-            # and by test frames; real images are far larger than the bank.
+            # The kernel is wider than the image, so it is all boundary.
+            # Triggered by cutouts and by test frames; real images are far
+            # larger than the bank.
             log.info(
                 f"Skipping template FWHM={fwhm:.1f} px: kernel "
                 f"{kernel.shape[0]} px exceeds the image"
             )
             continue
-        num, denom2 = ivw_convolve(data, wht, kernel, mask=mask)
+        # Remove the light this template should not be detecting: anything
+        # smooth on a scale well outside the template itself.  Done on the
+        # pixels rather than on the convolution, because convolving first
+        # would smear a single bad pixel across the whole kernel footprint
+        # and leave the median nothing to reject.
+        box = _bkg_box_size(fwhm)
+        bkg = RomanBackground(data, box_size=box, mask=mask).background
+        num, denom2 = ivw_convolve(data - bkg, wht, kernel, mask=mask)
         snr_images.append(snr_from_ivw(num, denom2))
-        log.info(f"Template FWHM={fwhm:.1f} px: kernel {kernel.shape[0]} px")
+        del bkg
+        log.info(
+            f"Template FWHM={fwhm:.1f} px: kernel {kernel.shape[0]} px, "
+            f"background box {box} px"
+        )
 
     if not snr_images:
         log.warning(
@@ -139,17 +168,12 @@ def make_template_snr_images(data, err, kernel_fwhm, mask=None):
         )
         return [], None
 
-    # Centroids and moments are measured on an unlowered PSF-convolved
-    # image.
-    # it may make more sense in the future to use a lowered image
-    # where a PSF riding on the background of a galaxy won't have its
-    # moments corrupted by the background, but we would need to be
-    # more careful about defining what pixels go to what segments
-    # to make use of this
-    psf_kernel = make_gaussian_kernel(
-        kernel_fwhm, size_factor=_MOMENT_SIZE_FACTOR
-    )
-    conv_psf = flux_convolve(data, psf_kernel, mask=mask)
+    # Centroids and moments are measured on a PSF-convolved image with no
+    # additional background removed.
+    # We should investigate subtracting one, but we need to more carefully
+    # track what scale the background should be removed on for each different template
+    psf_kernel = make_gaussian_kernel(kernel_fwhm, size_factor=_MOMENT_SIZE_FACTOR)
+    conv_psf = fft_convolve(data, psf_kernel, mask=mask)
 
     return snr_images, conv_psf
 
@@ -185,9 +209,17 @@ def _max_detection_image(snr_images):
     return max_image, template_at_pixel
 
 
-def _assign_segments(deblended, max_image, template_at_pixel, footprints,
-                     moment_image, n_pixels, mask=None, dilate=_SEGMENT_DILATE,
-                     max_sources=0):
+def _assign_segments(
+    deblended,
+    max_image,
+    template_at_pixel,
+    footprints,
+    moment_image,
+    n_pixels,
+    mask=None,
+    dilate=_SEGMENT_DILATE,
+    max_sources=0,
+):
     """
     Turn deblended segments into the final segmentation image.
 
@@ -220,9 +252,8 @@ def _assign_segments(deblended, max_image, template_at_pixel, footprints,
         The image the moments will be measured on.  Only its sign is used, to
         count the pixels a segment contributes to its own centroid.
     n_pixels : int
-        Smallest final segment to keep, counted in the pixels the photometry
-        can use for moment computation: unmasked, not claimed by a brighter
-        neighbour, and positive in the moment image.
+        Smallest final segment to keep, counting only positive, unmasked pixels
+        in the moment image, so moments can be computed.
     mask : 2D `numpy.ndarray`, optional
         Boolean mask indicating bad pixels.
     dilate : int, optional
@@ -418,9 +449,7 @@ def make_segmentation_image_template(
     significance : 1D `numpy.ndarray` or None
         Peak significance of each source, in sigma.
     """
-    snr_images, conv_psf = make_template_snr_images(
-        data, err, kernel_fwhm, mask=mask
-    )
+    snr_images, conv_psf = make_template_snr_images(data, err, kernel_fwhm, mask=mask)
     if not snr_images:
         # Nothing in the bank fits the image; already logged.
         return None, None, None, None
@@ -435,9 +464,7 @@ def make_segmentation_image_template(
         # mask rather than coverage_mask because snr_image is well defined
         # on masked pixels, and using mask leads bkg_rms to be well defined
         # there
-        bkg_rms = RomanBackground(
-            snr, box_size=bkg_boxsize, mask=mask
-        ).background_rms
+        bkg_rms = RomanBackground(snr, box_size=bkg_boxsize, mask=mask).background_rms
         snr_images[i] = np.where(bkg_rms > 0, snr / bkg_rms, 0.0)
         footprints.append(snr_images[i] > snr_threshold)
 
@@ -445,10 +472,12 @@ def make_segmentation_image_template(
     max_image = np.where(np.isfinite(max_image), max_image, 0.0)
 
     # Detection and deblending on the maximum significance image
-    # A unit background RMS is passed because the image is already in sigma.
-    # Deblending admits children of a single pixel: the size cut belongs at
-    # the end, once each segment has been narrowed to its template's isophote
-    # and dilated, and a genuine 5 sigma pixel should reach that stage.
+    # A unit background RMS is passed because the image has already
+    # been divided by the estimated noise.
+    # We here allow single-pixel children but impose a n_pixels cut at the end,
+    # once each segment has been narrowed to its template's isophote
+    # and dilated.  n_pixels = 1 corresponds to a true 5-sigma source in
+    # these detections, and so is a natural value.
     deblended = make_segmentation_image(
         max_image,
         snr_threshold,

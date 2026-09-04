@@ -4,6 +4,7 @@ Tests for the matched-filter template detection.
 
 import numpy as np
 import pytest
+import scipy.ndimage
 from astropy.modeling.models import Gaussian2D
 
 from romancal.source_catalog._background import RomanBackground
@@ -13,21 +14,19 @@ from romancal.source_catalog._detection import (
     snr_from_ivw,
 )
 from romancal.source_catalog._template_detection import (
-    _MOMENT_SIZE_FACTOR,
     _TEMPLATE_SIZE_FACTOR,
+    _bkg_box_size,
     _template_fwhms,
     make_segmentation_image_template,
 )
+
 
 @pytest.fixture
 def wide_image():
     """A frame with sources spanning the template sizes, plus a close pair.
 
-    Sized to admit every template whose scale a source here actually probes:
-    the widest source is 28 px FWHM, so the 330 px frame takes the PSF,
-    exp_small and exp_mid kernels (25, 81 and 323 px) and skips exp_large,
-    whose 601 px kernel would demand a frame four times the area to filter
-    for a scale nothing in the image has.
+    Note that the 330 pix image scale is too small to fit an 'exp_large' galaxy plus
+    associated background subtraction, so that's left out here.
     """
     shape = (330, 330)
     yy, xx = np.mgrid[0 : shape[0], 0 : shape[1]]
@@ -48,24 +47,41 @@ def wide_image():
 def _detect(data, err, mask=None, **kwargs):
     bkg = RomanBackground(data, box_size=100, mask=mask)
     params = dict(
-        snr_threshold=5.0, n_pixels=9, kernel_fwhm=2.0, deblend=True,
-        mask=mask, bkg_boxsize=100,
+        snr_threshold=5.0,
+        n_pixels=9,
+        kernel_fwhm=2.0,
+        deblend=True,
+        mask=mask,
+        bkg_boxsize=100,
     )
     params.update(kwargs)
     return make_segmentation_image_template(data - bkg.background, err, **params)
 
 
-def test_lowered_kernel_is_zero_sum():
-    """A lowered kernel gives no response to a flat background."""
-    plain = make_gaussian_kernel(2.0, size_factor=_MOMENT_SIZE_FACTOR)
-    lowered = make_gaussian_kernel(
-        2.0, lower=True, size_factor=_TEMPLATE_SIZE_FACTOR
-    )
-    assert np.isclose(plain.sum(), 1.0)
-    assert abs(lowered.sum()) < 1e-8
-    assert lowered.shape[0] > plain.shape[0]  # room for the background box
-    # the SNR loss is small
-    assert np.sqrt((lowered**2).sum()) / np.sqrt((plain**2).sum()) > 0.9
+def test_background_box_tracks_the_template():
+    """Each template removes a background at about its own kernel scale.
+
+    ``RomanBackground`` medians the mesh again over 3x3, so the scale actually
+    removed is about three boxes; the factor of four here is what makes that
+    ~12 FWHM.
+    """
+    boxes = [_bkg_box_size(f) for f in _template_fwhms(2.0)]
+    assert boxes == sorted(boxes)  # wider templates, wider background
+    for fwhm, box in zip(_template_fwhms(2.0), boxes, strict=True):
+        assert 3 * box == pytest.approx(12 * fwhm, rel=0.05)
+        # never larger than the kernel, which must already fit the image
+        assert (
+            box
+            <= make_gaussian_kernel(fwhm, size_factor=_TEMPLATE_SIZE_FACTOR).shape[0]
+        )
+
+
+def test_kernels_only_reach_the_wings():
+    """Kernels are sized for the template, not for a background box."""
+    for fwhm in _template_fwhms(2.0):
+        kernel = make_gaussian_kernel(fwhm, size_factor=_TEMPLATE_SIZE_FACTOR)
+        assert kernel.shape[0] <= 4 * fwhm + 2
+        assert kernel.sum() == pytest.approx(1.0, abs=1e-6)
 
 
 def test_significance_defined_on_masked_pixels():
@@ -118,8 +134,6 @@ def test_segments_are_contiguous(wide_image):
     between them.  `_assign_segments` trims each source to the piece holding
     its peak, and this guards that.
     """
-    import scipy.ndimage
-
     data, err = wide_image
     segment_img, _, _, _ = _detect(data, err)
     labels = np.asarray(segment_img.data)
@@ -142,8 +156,6 @@ def test_masked_stripe_does_not_split_a_segment(wide_image):
     """A masked stripe through a source -- a bleed trail, say -- must not cut
     its segment in two.  The significance and the detection threshold are both
     defined on masked pixels, so the segment closes over the stripe."""
-    import scipy.ndimage
-
     data, err = wide_image
     mask = np.zeros(data.shape, dtype=bool)
     mask[185:196, 70] = True  # a stripe across the large galaxy
@@ -192,3 +204,38 @@ def test_no_template_fits_returns_no_sources():
         data, err, snr_threshold=5.0, n_pixels=9, kernel_fwhm=2.0, deblend=True
     )
     assert result == (None, None, None, None)
+
+
+@pytest.mark.parametrize(
+    ("depth", "pixel_err"),
+    [
+        (-1000.0, 1.0),  # a deeply negative pixel with an honest error bar
+        (-60.0, 0.25),  # milder, but with the error under-estimated 4x
+    ],
+)
+def test_one_bad_pixel_does_not_make_a_swarm(wide_image, depth, pixel_err):
+    """A single badly negative pedestal must not bias the SNR image
+    positive.
+
+    Negative pixels can lead to negative sky subtraction leading to
+    positive SNR; this test verifies that the local background subtraction
+    is robust.
+    """
+    data, err = wide_image
+    data, err = data.copy(), err.copy()
+    y, x = 150, 260  # empty sky, far from every source in the fixture
+    data[y, x] = depth
+    err[y, x] = pixel_err
+
+    segment_img, _, _, _ = _detect(data, err)
+    labels = (
+        np.zeros(data.shape, dtype=int)
+        if segment_img is None
+        else np.asarray(segment_img.data)
+    )
+    box = labels[y - 20 : y + 21, x - 20 : x + 21]
+    assert len(np.unique(box[box > 0])) == 0
+
+    # and the real sources are all still there
+    for sy, sx in [(70, 70), (70, 170), (190, 70), (240, 250), (240, 266)]:
+        assert labels[sy, sx] > 0

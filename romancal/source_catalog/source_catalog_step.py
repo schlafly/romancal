@@ -17,11 +17,11 @@ from roman_datamodels.dqflags import pixel
 from romancal.datamodels.fileio import open_dataset
 from romancal.source_catalog._background import RomanBackground
 from romancal.source_catalog._detection import convolve_data
+from romancal.source_catalog._skyvals import compute_skyvals
+from romancal.source_catalog._source_catalog import RomanSourceCatalog
 from romancal.source_catalog._template_detection import (
     make_segmentation_image_template,
 )
-from romancal.source_catalog._skyvals import compute_skyvals
-from romancal.source_catalog._source_catalog import RomanSourceCatalog
 from romancal.source_catalog._utils import copy_model_arrays, get_ee_spline
 from romancal.source_catalog.psf import add_jitter
 from romancal.stpipe import RomanStep

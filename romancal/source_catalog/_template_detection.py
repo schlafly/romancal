@@ -61,19 +61,8 @@ _TEMPLATE_SIZE_FACTOR = 4
 # Local background scale for each template, as a multiple of its FWHM.
 # ``RomanBackground`` medians the pixels in boxes of this size and then
 # medians that mesh again over a 3x3 window, so the scale it actually
-# removes is about three boxes: a factor of four here subtracts a background
-# over ~12 FWHM.
-#
-# This is the same operator the step already uses to subtract the sky, only
-# at a smaller box: ``RomanBackground`` either way, so the same sigma clip,
-# median estimator and 3x3 mesh filter.  The sky runs at ``bkg_boxsize``,
-# 1000 px by default, removing structure on ~3000 px.  These scales are set
-# by the templates rather than by that parameter, deliberately.  The largest
-# template lands within a factor of two or three of the sky scale and so
-# partly does that job twice, which costs nothing: source counts on an HLWAS
-# frame move by 7 in 1800 across a factor of eight in this box.  The box is
-# always a pixel smaller than the template's kernel, which is already
-# required to fit the image, so it needs no bound of its own.
+# removes is about three boxes, a scale of _BKG_BOX_FACTOR * 3 FWHM,
+# ~ 12 FWHM with the default 4.
 _BKG_BOX_FACTOR = 4
 
 # Kernel box size for the image the moments are measured on, in units of the

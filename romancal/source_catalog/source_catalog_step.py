@@ -8,10 +8,11 @@ import pdb
 import logging
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
+import pdb
 
 import astropy.units as u
 import numpy as np
-from astropy.table import join
+from astropy.table import join, Table
 from photutils.segmentation import SegmentationImage
 from roman_datamodels import datamodels
 from roman_datamodels.datamodels import ImageModel
@@ -97,6 +98,7 @@ class SourceCatalogStep(RomanStep):
         suffix = string(default='cat')        # Default suffix for output files
         fit_psf = boolean(default=True)       # fit source PSFs for accurate astrometry?
         forced_segmentation = string(default='')  # force the use of this segmentation map
+        forced_photometry = string(default='') #  Input catalog name for forced photometry
         compute_skyvals = boolean(default=True)  # compute healpix sky summary arrays
     """
 
@@ -109,6 +111,7 @@ class SourceCatalogStep(RomanStep):
                 datamodels.ImageSourceCatalogModel,
                 datamodels.ForcedMosaicSourceCatalogModel,
                 datamodels.MosaicSourceCatalogModel,
+                datamodels.TimeDomainSourceCatalogModel,
             ),
         ):
             kwargs["ext"] = "parquet"
@@ -124,6 +127,7 @@ class SourceCatalogStep(RomanStep):
         # strip the index since these all have different extensions
         kwargs.pop("idx")
 
+        #pdb.set_trace()
         return super().save_model(model, **kwargs)
 
     def _read_forced_detection_image(self, forced_segmodel):
@@ -497,47 +501,7 @@ class SourceCatalogStep(RomanStep):
             forced_cat = forced_catobj.catalog
             #pdb.set_trace()
             forced_cat.meta = None  # redundant with cat.meta
-            # remove some duplicate/unneeded columns from the forced catalog
-            log.info("Removing duplicate/unneeded columns from the forced catalog")
-            forced_cols_to_remove = ['forced_ra_centroid', 'forced_dec_centroid', 'forced_ra_centroid_err',
-                                'forced_dec_centroid_err', 'forced_semimajor', 'forced_semiminor',
-                                'forced_fwhm', 'forced_ellipticity', 'forced_orientation_pix',
-                                'forced_orientation_sky', 'forced_cxx', 'forced_cxy', 'forced_cyy',
-                                'forced_kron_radius', 'forced_nn_label', 'forced_nn_distance',
-                                'flagged_spatial_id', 'x_centroid', 'y_centroid', 'x_centroid_err',
-                                'y_centroid_err', 'x_centroid_win', 'y_centroid_win',
-                                'x_centroid_win_err', 'y_centroid_win_err', 'ra_centroid',
-                                'dec_centroid', 'ra_centroid_err', 'dec_centroid_err',
-                                'ra_centroid_win', 'dec_centroid_win', 'ra_centroid_win_err',
-                                'dec_centroid_win_err', 'bbox_xmin', 'bbox_xmax', 'bbox_ymin',
-                                'bbox_ymax', 'segment_area', 'semimajor', 'semiminor', 'fwhm',
-                                'ellipticity', 'orientation_pix', 'orientation_sky', 'cxx', 'cxy',
-                                'cyy', 'kron_radius', 'nn_label', 'nn_distance', 'sharpness',
-                                'roundness1', 'is_extended', 'fluxfrac_radius_50', 'segment_flux',
-                                'segment_flux_err', 'kron_flux', 'kron_flux_err', 'kron_abmag',
-                                'kron_abmag_err', 'dust_ebv']
-            extra_cols_to_remove = ['ra','dec','x_centroid', 'y_centroid', 
-                                    'x_centroid_win', 'y_centroid_win', 'x_centroid_win_err',
-                                    'y_centroid_win_err', 'kron_radius', 'nn_label', 'nn_distance',
-                                    'segment_flux', 'segment_flux_err', 'kron_radius', 'kron_flux', 'kron_flux_err',
-                                    'is_extended', 'sharpness', 'roundness1', 'fluxfrac_radius_50',
-                                    'bbox_xmin', 'bbox_xmax', 'bbox_ymin', 'bbox_ymax', 'segment_area', 'segment_flux',
-                                    'forced_segment_flux', 'forced_segment_flux_err', 'forced_kron_flux',
-                                    'forced_kron_flux_err','kron_abmag', 'kron_abmag_err', 'dust_ebv',
-                                    'forced_x_psf', 'forced_y_psf', 'forced_x_psf_err', 'forced_y_psf_err', 'forced_is_extended',
-                                    'forced_fluxfrac_radius_50', 'forced_ra_psf', 'forced_dec_psf', 'forced_ra_psf_err', 'forced_dec_psf_err',
-                                    'forced_sharpness', 'forced_roundness1', 'forced_kron_abmag',
-                                    'forced_kron_abmag_err', 'forced_warning_flags', 'forced_psf_flags', 'forced_psf_gof', 'image_flags']
-            cols_to_remove = forced_cols_to_remove + extra_cols_to_remove
-            #pdb.set_trace()
-            for item in cols_to_remove:
-                if item in forced_cat.colnames:
-                    forced_cat.remove_column(item)
             cat = join(forced_cat, prompt_cat, keys="label", join_type="outer")
-            cols_to_remove = forced_cols_to_remove
-            for item in cols_to_remove:
-                if item in cat.colnames:
-                    cat.remove_column(item)
  
         log.info("Creating source catalog")
 
@@ -635,22 +599,28 @@ class SourceCatalogStep(RomanStep):
         if isinstance(input_model, datamodels.ImageModel):
             self.finalize_result(input_model, self._reference_files_used)
             input_model.meta.cal_step.source_catalog = "COMPLETE"
+        #pdb.set_trace()
         return cat_model, segmentation_model
 
     def _make_catalog_and_segmentation_models(self, model):
         if isinstance(model, ImageModel):
-            if (self.forced_segmentation or self.forced_photometry):
+            if self.forced_segmentation:
                 cat_model_cls = datamodels.ForcedImageSourceCatalogModel
+            elif self.forced_photometry:
+                cat_model_cls = datamodels.TimeDomainSourceCatalogModel
+                #pdb.set_trace()
             else:
                 cat_model_cls = datamodels.ImageSourceCatalogModel
             segmentation_model_cls = datamodels.SegmentationMapModel
         else:
-            if (self.forced_segmentation or self.forece_photometry):
+            #if (self.forced_segmentation or self.forced_photometry):
+            if self.forced_segmentation:
                 cat_model_cls = datamodels.ForcedMosaicSourceCatalogModel
             else:
                 cat_model_cls = datamodels.MosaicSourceCatalogModel
             segmentation_model_cls = datamodels.MosaicSegmentationMapModel
 
+        #pdb.set_trace()
         cat_model = cat_model_cls.create_minimal({"meta": model.meta})
         cat_model.meta["image"] = {
             "filename": model.meta.filename,
@@ -661,7 +631,8 @@ class SourceCatalogStep(RomanStep):
             cat_model.meta.data_release_id = model.meta.data_release_id
 
         # make L3 metadata
-        if (self.forced_segmentation or self.forced_photometry):
+        #if (self.forced_segmentation or self.forced_photometry):
+        if self.forced_segmentation:
             cat_model.meta.image.forced_segmentation = self.forced_segmentation
 
         segmentation_model = segmentation_model_cls.create_minimal(

@@ -138,12 +138,33 @@ def test_create_metadata(monkeypatch):
         "skycell1",
         {"foo": "bar"},
         "0000101002003004005",
+        "p01002",
+        "pass",
     )
     assert meta["asn_type"] == "image"
     assert meta["program"] == "P1"
     assert meta["data_release_id"] == "d1"
     assert meta["target"] == "skycell1"
     assert meta["skycell_wcs_info"] == {"foo": "bar"}
+    assert meta["exposure_grouping"] == "p01002"
+    assert meta["product_type"] == "pass"
+
+
+@pytest.mark.parametrize(
+    "product_type,expected",
+    [
+        ("visit", "v01002003004005"),
+        ("pass", "p01002"),
+        ("full", "full"),
+    ],
+)
+def test_mk_exposure_grouping(product_type, expected):
+    visit_id = "0000101002003004005"
+    assert skycell_asn._mk_exposure_grouping(visit_id, product_type) == expected
+    asn_name = skycell_asn._mk_level3_asn_name(
+        visit_id, "r00001", "f158", "p", product_type, "270p65x48y69"
+    )
+    assert asn_name == f"r00001_p_{expected}_270p65x48y69_f158"
 
 
 @pytest.mark.parametrize(

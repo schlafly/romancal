@@ -143,14 +143,14 @@ def _create_intersecting_skycell_index(filelist: list[str]) -> list[FileRecord]:
     return file_index
 
 
-def _mk_level3_asn_name(
-    visit_id, output_file_root, filter_id, release_product, product_type, patch_name
-):
-    """Construct an association file name based on the visit_id and product"""
+def _mk_exposure_grouping(visit_id, product_type):
+    """Construct the exposure grouping token for a visit_id and product type
+
+    This token is used both in the association file name and as the
+    exposure_grouping recorded in the association.
+    """
 
     parsed_visit_id = parse_visitID(visit_id)
-
-    sep = "_"
 
     product_name_mapping = {
         "visit": "v"
@@ -168,7 +168,17 @@ def _mk_level3_asn_name(
         "user": "user",
     }
 
-    pr_name = product_name_mapping.get(product_type, "unknown")
+    return product_name_mapping.get(product_type, "unknown")
+
+
+def _mk_level3_asn_name(
+    visit_id, output_file_root, filter_id, release_product, product_type, patch_name
+):
+    """Construct an association file name based on the visit_id and product"""
+
+    sep = "_"
+
+    pr_name = _mk_exposure_grouping(visit_id, product_type)
 
     asn_file_name = (
         output_file_root
@@ -256,6 +266,8 @@ def _process_groups(
                     skycell_name,
                     skycell_wcs_info,
                     visit_id_no_r,
+                    _mk_exposure_grouping(visit_id_no_r, product_type),
+                    product_type,
                 )
 
                 # Serialize and save the association
@@ -270,6 +282,8 @@ def _create_metadata(
     skycell_name: str,
     skycell_wcs_info: dict,
     visit_id_no_r: str,
+    exposure_grouping: str | None = None,
+    product_type: str | None = None,
 ):
     """
     Create and populate the metadata dictionary for a skycell association.
@@ -288,6 +302,11 @@ def _create_metadata(
         WCS info dictionary of the skycell.
     visit_id_no_r : str
         Visit ID string (without leading 'r') used for program extraction.
+    exposure_grouping : str, optional
+        Exposure grouping of the product (e.g., 'v01002003004005', 'p01002',
+        'full'). Not recorded if None.
+    product_type : str, optional
+        Type of product (e.g., 'visit', 'pass', 'full'). Not recorded if None.
 
     Returns
     -------
@@ -304,6 +323,10 @@ def _create_metadata(
     prompt_product_asn["data_release_id"] = data_release_id
     prompt_product_asn["target"] = skycell_name
     prompt_product_asn["skycell_wcs_info"] = skycell_wcs_info
+    if exposure_grouping is not None:
+        prompt_product_asn["exposure_grouping"] = exposure_grouping
+    if product_type is not None:
+        prompt_product_asn["product_type"] = product_type
 
     return prompt_product_asn
 

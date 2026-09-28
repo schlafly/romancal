@@ -21,6 +21,31 @@ log.setLevel(logging.DEBUG)
 __all__ = ["ResampleData", "make_output_wcs"]
 
 
+def _make_product_type(data_release_id, product_type, exposure_grouping):
+    """Construct the L3 product_type, e.g., p_visit_coadd
+
+    Parameters
+    ----------
+    data_release_id : str
+        Data release identifier; "p" for prompt products.
+    product_type : str or None
+        Product type from the association (e.g., 'visit', 'pass', 'full').
+    exposure_grouping : str or None
+        Exposure grouping of the output; used to identify visit products
+        when the association does not specify a product type.
+
+    Returns
+    -------
+    str
+        "{p|r}_{product_type}_coadd", or "{p|r}_coadd" if the product type
+        is unknown.
+    """
+    release = "p" if data_release_id == "p" else "r"
+    if product_type is None and exposure_grouping is not None:
+        product_type = "visit"
+    return "_".join(x for x in (release, product_type, "coadd") if x)
+
+
 def make_output_wcs(
     input_models,
     pscale_ratio=1.0,
@@ -380,6 +405,11 @@ class ResampleData(Resample):
 
         if self.blend_meta:
             output_model = self._meta_blender.finalize()
+            # prefer the exposure grouping recorded in the association
+            if (
+                exposure_grouping := self.input_models.asn.get("exposure_grouping")
+            ) is not None:
+                output_model.meta.observation.exposure_grouping = exposure_grouping
         else:
             output_model = datamodels.MosaicModel.create_minimal()
 
@@ -440,6 +470,11 @@ class ResampleData(Resample):
         # get data release ID
         output_model.meta.data_release_id = self.input_models.asn.get(
             "data_release_id", "p"
+        )
+        output_model.meta.product_type = _make_product_type(
+            output_model.meta.data_release_id,
+            self.input_models.asn.get("product_type"),
+            output_model.meta.get("observation", {}).get("exposure_grouping"),
         )
 
         return output_model

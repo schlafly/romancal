@@ -10,7 +10,11 @@ from stcal.resample.utils import compute_mean_pixel_area
 from romancal.assign_wcs.assign_wcs import add_s_region
 from romancal.datamodels import ModelLibrary
 from romancal.resample import ResampleStep
-from romancal.resample.resample import ResampleData, make_output_wcs
+from romancal.resample.resample import (
+    ResampleData,
+    _make_product_type,
+    make_output_wcs,
+)
 from romancal.tests.wcs_helpers import create_wcs_object
 
 
@@ -555,6 +559,52 @@ def test_l3_wcsinfo(multiple_exposures):
     for key in expected.keys():
         if key not in ["projection", "s_region", "data_release_id"]:
             assert np.allclose(output_model.meta.wcsinfo[key], expected[key])
+
+
+@pytest.mark.parametrize(
+    "asn_update,exposure_grouping,product_type",
+    [
+        ({}, None, "p_visit_coadd"),
+        (
+            {"exposure_grouping": "p01001", "product_type": "pass"},
+            "p01001",
+            "p_pass_coadd",
+        ),
+        (
+            {"exposure_grouping": "full", "product_type": "full"},
+            "full",
+            "p_full_coadd",
+        ),
+        ({"data_release_id": "r0"}, None, "r_visit_coadd"),
+    ],
+)
+def test_grouping_meta_from_asn(
+    exposure_1, asn_update, exposure_grouping, product_type
+):
+    """exposure_grouping and product_type are taken from the association"""
+    input_models = ModelLibrary(exposure_1)
+    input_models._asn.update(asn_update)
+    output_model = ResampleStep().run(input_models)
+    if exposure_grouping is None:
+        assert output_model.meta.observation.exposure_grouping.startswith("v")
+    else:
+        assert output_model.meta.observation.exposure_grouping == exposure_grouping
+    assert output_model.meta.product_type == product_type
+
+
+@pytest.mark.parametrize(
+    "data_release_id,product_type,exposure_grouping,expected",
+    [
+        ("p", "pass", "p01001", "p_pass_coadd"),
+        ("r0", "full", "full", "r_full_coadd"),
+        ("p", None, "v01001001001001", "p_visit_coadd"),
+        ("p", None, None, "p_coadd"),
+    ],
+)
+def test_make_product_type(data_release_id, product_type, exposure_grouping, expected):
+    assert (
+        _make_product_type(data_release_id, product_type, exposure_grouping) == expected
+    )
 
 
 def test_resample_pixel_scale_units(wfi_sca1):

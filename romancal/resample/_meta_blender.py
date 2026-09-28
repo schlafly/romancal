@@ -115,9 +115,6 @@ class MetaBlender:
         # make a blank mosic metdata node
         self._model = datamodels.MosaicModel.create_minimal()
 
-        # FIXME assuming everything is a prompt coadd
-        self._model.meta.product_type = "p_visit_coadd"
-
         self._meta = self._model.meta
 
         self._model["individual_image_cal_logs"] = []

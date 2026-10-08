@@ -2,6 +2,7 @@
 Module to calculate PSF photometry.
 """
 
+import pdb
 import logging
 import warnings
 from collections import OrderedDict
@@ -697,7 +698,21 @@ class _PSFCatalog:
         # stars whose centroid is offset from the PSF position, e.g., by
         # a blended neighbor.
         xy_bounds = 2.5  # pixels
-        psfphot = PSFPhotometry(
+
+        # For forced photometry fix the x and y positions of the PSF model to the input values
+        if hasattr(self.model.meta, 'x_0_flag'):
+            #pdb.set_trace()
+            if self.model.meta.x_0_flag:
+                self.psf_model.x_0.fixed = True
+            else:
+                self.psf_model.x_0.fixed = False
+                
+            if self.model.meta.y_0_flag:
+                self.psf_model.y_0.fixed = True
+            else:
+                self.psf_model.y_0.fixed = False
+
+            psfphot = PSFPhotometry(
             self.psf_model,
             fit_shape,
             grouper=grouper,

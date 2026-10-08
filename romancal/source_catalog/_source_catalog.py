@@ -176,7 +176,10 @@ class RomanSourceCatalog:
         self.fit_psf = fit_psf
         self.psf_model = psf_model
         self.mask = mask
-        self.detection_cat = detection_cat
+        if cat_type != 'forced_photom':
+            self.detection_cat = detection_cat
+        else:
+            self.detection_cat = self.model.src_table
         self.flux_unit_str = flux_unit
         self.flux_unit = u.Unit(self.flux_unit_str)
         self.cat_type = cat_type
@@ -642,6 +645,12 @@ class RomanSourceCatalog:
                 factory=self._make_aperture_cat,
                 store_as="aperture_cat",
                 condition=lambda: self.cat_type != "forced_det",
+            ),
+            MeasurementStep(
+                label="aperture photometry",
+                factory=self._make_aperture_cat,
+                store_as="aperture_cat",
+                condition=lambda: self.cat_type != "forced_photometry",
             ),
             MeasurementStep(
                 label="DAOFind properties",

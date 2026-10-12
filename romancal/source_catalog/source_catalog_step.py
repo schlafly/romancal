@@ -430,31 +430,13 @@ class SourceCatalogStep(RomanStep):
         apcorr_ref = self.get_reference_file(input_model, "apcorr")
         ee_spline = get_ee_spline(input_model, apcorr_ref)
 
-        log.info("Creating source catalog")
-        cat_type = "prompt" if not self.forced_segmentation else "forced_det"
-        fit_psf = self.fit_psf & (not self.forced_segmentation)  # skip when forced
-        prompt_catobj = RomanSourceCatalog(
-            model,
-            cat_model,
-            segment_img,
-            detection_image,
-            self.kernel_fwhm,
-            fit_psf=fit_psf,
-            psf_model=psf_model,
-            mask=mask,
-            cat_type=cat_type,
-            ee_spline=ee_spline,
-        )
-        prompt_cat = prompt_catobj.catalog
-
-        # Forced psf catalog
         # check to see if the forced_photometry variable is set if so set the flags so that the
         # psf position and FWHM are fixed
         if self.forced_photometry:
-            cat_type = 'forced_photometry'
-            model.meta.x_0_flag = False
-            model.meta.y_0_flag = False
-            model.meta.fwhm_flag = False
+            #cat_type = 'forced_photometry'
+            model.meta.x_0_flag = True
+            model.meta.y_0_flag = True
+            model.meta.fwhm_flag = True
             # Read the input table and set the x,y position to x_centroid & y_centroid to correspond to
             # what the later steps expect
             try:
@@ -479,6 +461,40 @@ class SourceCatalogStep(RomanStep):
                 return
 
             model.src_table = src_table
+        
+        log.info("Creating source catalog")
+        cat_type = "prompt" if not self.forced_segmentation else "forced_det"
+        fit_psf = self.fit_psf & (not self.forced_segmentation)  # skip when forced
+
+        if hasattr(model, 'src_table'):
+            # for prompt catalog use detection_image for sources
+            input_detection_image = None
+        else:
+            input_detection_image  = detection_image
+            
+        #pdb.set_trace()
+        prompt_catobj = RomanSourceCatalog(
+            model,
+            cat_model,
+            segment_img,
+            input_detection_image,
+            self.kernel_fwhm,
+            fit_psf=fit_psf,
+            psf_model=psf_model,
+            mask=mask,
+            cat_type=cat_type,
+            ee_spline=ee_spline,
+        )
+        prompt_cat = prompt_catobj.catalog
+
+        # Forced psf catalog
+        # check to see if the forced_photometry variable is set if so set the flags so that the
+        # psf position and FWHM are fixed
+        if self.forced_photometry:
+            cat_type = 'forced_photometry'
+            model.meta.x_0_flag = False
+            model.meta.y_0_flag = False
+            model.meta.fwhm_flag = False
 
             log.info("Creating forced postion source catalog")
             fit_psf = self.fit_psf & (not self.forced_segmentation)  # skip when forced

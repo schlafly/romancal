@@ -478,6 +478,16 @@ class SourceCatalogStep(RomanStep):
             forced_cat.meta = None  # redundant with cat.meta
             cat = join(forced_cat, prompt_cat, keys="label", join_type="outer")
 
+            # Placeholders for columns required by the time domain catalog
+            # schema that are not yet computed.
+            # TODO: fill x, y from the input catalog positions and
+            # forced_psf_flags/gof from the forced PSF fit.
+            nrows = len(cat)
+            cat["x"] = np.full(nrows, np.nan, dtype=np.float32) * u.pix
+            cat["y"] = np.full(nrows, np.nan, dtype=np.float32) * u.pix
+            cat["forced_psf_flags"] = np.zeros(nrows, dtype=np.int32)
+            cat["forced_psf_gof"] = np.full(nrows, np.nan, dtype=np.float32)
+
         if cat_type == "forced_det":
             # TODO: improve this so that the moment-based properties are
             # not recomputed from the forced_detection_image

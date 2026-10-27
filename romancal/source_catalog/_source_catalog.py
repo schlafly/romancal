@@ -2,6 +2,7 @@
 Module to calculate the source catalog.
 """
 
+import pdb
 import logging
 import re
 from collections.abc import Callable
@@ -189,6 +190,9 @@ class RomanSourceCatalog:
         self.wcs = self.model.meta.wcs
         self.meta = {}
         self.aperture_cat = None
+        if cat_type == "forced_photometry":
+            self.id = 0
+            self.source_catalog_index = np.int16(0)
 
         # Define flux unit conversion factors
         if "photometry" in self.model.meta:
@@ -210,6 +214,7 @@ class RomanSourceCatalog:
             fit_psf=self.fit_psf,
             aperture_flux_colnames=ApertureCatalog.aperture_flux_colnames_for_radii(),
         )
+        #pdb.set_trace()
 
     def __len__(self):
         return self.n_sources
@@ -776,6 +781,7 @@ class RomanSourceCatalog:
             `~astropy.units.Quantity`.
         """
         catalog = QTable()
+        #pdb.set_trace()
         for column in self.column_names:
             catalog[column] = getattr(self, column)
             definition = self.cat_model.get_column_definition(column)

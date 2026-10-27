@@ -72,7 +72,7 @@ class CatalogSchema:
             "kron_abmag_err",
         ]
         #psf_colnames = ["psf_flux", "psf_flux_err"]
-        psf_colnames = self.psf_colnames
+        #psf_colnames = self.psf_colnames
         # PSF-matched catalogs omit abmag columns (redundant, since they
         # can be derived from flux via -2.5*log10; we provide at least
         # one magnitude per source but not all variants) and PSF columns
@@ -270,6 +270,7 @@ class CatalogSchema:
             #pdb.set_trace()
             #psf_colnames = ["psf_flux", "psf_flux_err"]
             colnames = ["label"]  # needed to join the forced catalogs
+            colnames.extend(["id", "source_catalog_index"])
             colnames.extend(base_colnames)
             colnames.extend(self.psf_colnames)
             colnames.extend(self.aper_colnames)
@@ -319,7 +320,8 @@ class CatalogSchema:
         # Prefix all columns (except "label") with "forced_"
         if self.cat_type == "forced_det" or (self.cat_type == "forced_photometry"):
             for colname in catalog.colnames:
-                if colname != "label":
+                #if colname != "label":
+                if colname not in {'label', 'id', 'source_catalog_index'}:
                     catalog.rename_column(colname, f"forced_{colname}")
 
         # Prefix the band_colnames with "forced_"

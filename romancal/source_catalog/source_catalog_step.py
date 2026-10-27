@@ -8,7 +8,6 @@ import pdb
 import logging
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
-import pdb
 
 import astropy.units as u
 import numpy as np
@@ -127,7 +126,7 @@ class SourceCatalogStep(RomanStep):
         # strip the index since these all have different extensions
         kwargs.pop("idx")
 
-        #pdb.set_trace()
+        pdb.set_trace()
         return super().save_model(model, **kwargs)
 
     def _read_forced_detection_image(self, forced_segmodel):
@@ -234,6 +233,7 @@ class SourceCatalogStep(RomanStep):
         so ``meta.cal_step.source_catalog`` is marked ``COMPLETE``.
         """
         cat_model.source_catalog = cat_model.create_empty_catalog()
+        pdb.set_trace()
         segmentation_model.data = np.zeros(model.data.shape, dtype=np.uint32)
         self._attach_skyvals_if_enabled(input_model, segmentation_model, mask)
         # Match the non-empty path: only ImageModel records this cal_step.
@@ -329,6 +329,7 @@ class SourceCatalogStep(RomanStep):
         cat_model, segmentation_model = self._make_catalog_and_segmentation_models(
             model
         )
+        #pdb.set_trace()
 
         # Return an empty segmentation image and catalog table if all
         # pixels are masked
@@ -389,10 +390,10 @@ class SourceCatalogStep(RomanStep):
             apcorr_ref = self.get_reference_file(input_model, "apcorr")
             ee_spline = get_ee_spline(input_model, apcorr_ref)
 
-#        log.info("Creating detection image")
-#        detection_image = convolve_data(
-#            model.data, kernel_fwhm=self.kernel_fwhm, mask=mask
-#        )
+        log.info("Creating detection image")
+        detection_image = convolve_data(
+            model.data, kernel_fwhm=self.kernel_fwhm, mask=mask
+        )
 
         log.info("Detecting sources")
         if not self.forced_segmentation:
@@ -471,6 +472,7 @@ class SourceCatalogStep(RomanStep):
             model.src_table = src_table
         
         log.info("Creating source catalog")
+        #pdb.set_trace()
         cat_type = "prompt" if not self.forced_segmentation else "forced_det"
         fit_psf = self.fit_psf & (not self.forced_segmentation)  # skip when forced
 
@@ -484,7 +486,6 @@ class SourceCatalogStep(RomanStep):
         else:
             input_detection_image  = detection_image
             
-        #pdb.set_trace()
         prompt_catobj = RomanSourceCatalog(
             model,
             cat_model,
@@ -497,6 +498,7 @@ class SourceCatalogStep(RomanStep):
             cat_type=cat_type,
             ee_spline=ee_spline,
         )
+        #pdb.set_trace()
         prompt_cat = prompt_catobj.catalog
 
         # Forced psf catalog
@@ -531,7 +533,7 @@ class SourceCatalogStep(RomanStep):
             #self._save_detection_image(segmentation_model, forced_catobj)
             forced_cat.meta = None  # redundant with cat.meta
             cat = join(forced_cat, prompt_cat, keys="label", join_type="outer")
-            #pdb.set_trace()
+            pdb.set_trace()
  
         #log.info("Creating source catalog")
 
@@ -585,6 +587,7 @@ class SourceCatalogStep(RomanStep):
                 cat_type="forced_full",
                 ee_spline=ee_spline,
             )
+            #pdb.set_trace()
 
             # reset the model to fit the psf  parameters
             self.forced_photometry = ''
@@ -606,7 +609,7 @@ class SourceCatalogStep(RomanStep):
             )
             floating_cat = floating_catobj.catalog
             forced_cat.meta = None  # redundant with cat.meta
-            #pdb.set_trace()
+            pdb.set_trace()
             cat = join(floating_cat, forced_cat, keys="label", join_type="outer")
 
         # Put the resulting catalog table in the catalog model
@@ -617,7 +620,8 @@ class SourceCatalogStep(RomanStep):
             cat_model.source_catalog = cat
 
         log.info("Saving detection image")
-        self._save_detection_image(segmentation_model, prompt_catobj)
+        #pdb.set_trace()
+        #self._save_detection_image(segmentation_model, prompt_catobj)
         #prompt_cat.meta = None  # redundant with cat.meta
         #cat = join(forced_cat, cat, keys="label", join_type="outer")
 
@@ -628,6 +632,7 @@ class SourceCatalogStep(RomanStep):
         #pdb.set_trace()
         segmentation_model.data = segment_img.data.astype(np.uint32)
         segmentation_model.detection_image = segmentation_model.detection_image[:]
+        self._save_detection_image(segmentation_model, prompt_catobj)
         self._attach_skyvals_if_enabled(input_model, segmentation_model, mask)
         # we update the input_model here to note that source_catalog finished
         # only for ImageModel as L3 doesn't have cal_step.source_catalog

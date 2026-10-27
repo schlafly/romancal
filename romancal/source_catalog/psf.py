@@ -712,13 +712,13 @@ class _PSFCatalog:
             else:
                 self.psf_model.y_0.fixed = False
 
-            psfphot = PSFPhotometry(
-            self.psf_model,
-            fit_shape,
-            grouper=grouper,
-            aperture_radius=fit_shape[0],
-            xy_bounds=xy_bounds,
-        )
+        psfphot = PSFPhotometry(
+        self.psf_model,
+        fit_shape,
+        grouper=grouper,
+        aperture_radius=fit_shape[0],
+        xy_bounds=xy_bounds,
+    )
 
         init_params = Table()
         x_init, y_init = np.transpose(self.xypos)

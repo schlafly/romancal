@@ -316,14 +316,18 @@ class CatalogSchema:
         catalog : `~astropy.table.Table`
             The same catalog, returned for chaining.
         """
-        #pdb.set_trace()
         # Prefix all columns (except "label") with "forced_"
-        if self.cat_type == "forced_det" or (self.cat_type == "forced_photometry"):
+        if self.cat_type == "forced_det":
+            for colname in catalog.colnames:
+                if colname != "label":
+                    catalog.rename_column(colname, f"forced_{colname}")
+
+        if self.cat_type == "forced_photometry":
             for colname in catalog.colnames:
                 #if colname != "label":
                 if colname not in {'label', 'id', 'source_catalog_index'}:
                     catalog.rename_column(colname, f"forced_{colname}")
-
+                    
         # Prefix the band_colnames with "forced_"
         if self.cat_type == "forced_full":
             for colname in [*self.band_colnames, "warning_flags"]:

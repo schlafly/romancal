@@ -126,7 +126,6 @@ class SourceCatalogStep(RomanStep):
         # strip the index since these all have different extensions
         kwargs.pop("idx")
 
-        pdb.set_trace()
         return super().save_model(model, **kwargs)
 
     def _read_forced_detection_image(self, forced_segmodel):
@@ -155,7 +154,6 @@ class SourceCatalogStep(RomanStep):
         # empty/failed segmentation product, or a hand-built map.
         try:
             detection_image = forced_segmodel.detection_image
-            #pdb.set_trace()
         except AttributeError as err:
             msg = (
                 "forced_segmentation must include a detection_image array. "
@@ -218,7 +216,6 @@ class SourceCatalogStep(RomanStep):
         detection_image = catobj.convolved_data
         segmentation_model["detection_image"] = detection_image.value
         segmentation_model["detection_image_unit"] = str(detection_image.unit)
-        #pdb.set_trace()
 
     def _empty_catalog_results(
         self, cat_model, segmentation_model, input_model, model, mask
@@ -233,7 +230,6 @@ class SourceCatalogStep(RomanStep):
         so ``meta.cal_step.source_catalog`` is marked ``COMPLETE``.
         """
         cat_model.source_catalog = cat_model.create_empty_catalog()
-        pdb.set_trace()
         segmentation_model.data = np.zeros(model.data.shape, dtype=np.uint32)
         self._attach_skyvals_if_enabled(input_model, segmentation_model, mask)
         # Match the non-empty path: only ImageModel records this cal_step.
@@ -267,7 +263,6 @@ class SourceCatalogStep(RomanStep):
         with datamodels.open(self.forced_segmentation) as forced_segmodel:
             # forced_segmodel.data is asdf.tags.core.ndarray.NDArrayType
             forced_segimg = np.asarray(forced_segmodel.data[...]).copy()
-            #pdb.set_trace()
 
             # Remove fully masked segments
             unmasked_sources = np.unique(forced_segimg * (mask == 0))
@@ -329,7 +324,6 @@ class SourceCatalogStep(RomanStep):
         cat_model, segmentation_model = self._make_catalog_and_segmentation_models(
             model
         )
-        #pdb.set_trace()
 
         # Return an empty segmentation image and catalog table if all
         # pixels are masked
@@ -378,52 +372,10 @@ class SourceCatalogStep(RomanStep):
                     deblend=self.deblend,
                     mask=mask,
                 )
-            else:
-                with datamodels.open(self.forced_segmentation, lazy_tree=False) as forced_segmodel:
-                    # forced_segmodel.data is asdf.tags.core.ndarray.NDArrayType
-                    forced_segimg = forced_segmodel.data[...]
-                    forced_detection_image = self._read_forced_detection_image(
-                        forced_segmodel
-                    )
 
             log.info("Creating ee_fractions model")
             apcorr_ref = self.get_reference_file(input_model, "apcorr")
             ee_spline = get_ee_spline(input_model, apcorr_ref)
-
-        log.info("Creating detection image")
-        detection_image = convolve_data(
-            model.data, kernel_fwhm=self.kernel_fwhm, mask=mask
-        )
-
-        log.info("Detecting sources")
-        if not self.forced_segmentation:
-            segment_img = make_segmentation_image(
-                detection_image,
-                snr_threshold=self.snr_threshold,
-                n_pixels=self.npixels,
-                bkg_rms=bkg.background_rms,
-                deblend=self.deblend,
-                mask=mask,
-            )
-            segmentation_model["detection_image"] = detection_image
-            #pdb.set_trace()
-        elif self.forced_segmentation:
-            forced_segmodel = datamodels.open(self.forced_segmentation)
-            # forced_segmodel.data is asdf.tags.core.ndarray.NDArrayType
-            forced_segimg = forced_segmodel.data[...]
-            #detection_image = forced_detection_image
-            forced_segmodel.detection_image = forced_detection_image            
-            forced_segmodel.detection_image_unit = forced_detection_image.unit.to_string()            
-            #pdb.set_trace()
-
-            # Remove fully masked segments
-            unmasked_sources = np.unique(forced_segimg * (mask == 0))
-            fully_masked_sources = set(np.unique(forced_segimg)) - set(unmasked_sources)
-            forced_segimg_mask = np.isin(
-                forced_segimg, np.array(list(fully_masked_sources))
-            )
-            forced_segimg[forced_segimg_mask] = 0
-            segment_img = SegmentationImage(forced_segimg)
 
         # Return an empty segmentation image and catalog table if no
         # sources are detected
@@ -435,14 +387,12 @@ class SourceCatalogStep(RomanStep):
             input_model.meta.cal_step.source_catalog = "COMPLETE"
             return cat_model, segmentation_model
 
-        log.info("Creating ee_fractions model")
-        apcorr_ref = self.get_reference_file(input_model, "apcorr")
-        ee_spline = get_ee_spline(input_model, apcorr_ref)
+        is_forced_segmentation = bool(self.forced_segmentation)
+        is_forced_photometry = bool(self.forced_photometry)
 
         # check to see if the forced_photometry variable is set if so set the flags so that the
         # psf position and FWHM are fixed
-        if self.forced_photometry:
-            #cat_type = 'forced_photometry'
+        if is_forced_photometry:
             model.meta.x_0_flag = True
             model.meta.y_0_flag = True
             model.meta.fwhm_flag = True
@@ -472,16 +422,13 @@ class SourceCatalogStep(RomanStep):
             model.src_table = src_table
         
         log.info("Creating source catalog")
-        #pdb.set_trace()
-        cat_type = "prompt" if not self.forced_segmentation else "forced_det"
-        fit_psf = self.fit_psf & (not self.forced_segmentation)  # skip when forced
+        cat_type = "forced_det" if is_forced_segmentation else "prompt"
+        fit_psf = self.fit_psf and (not is_forced_segmentation)  # skip when forced
 
         if hasattr(model, 'src_table'):
             # for prompt catalog use detection_image for sources
-            #input_detection_image = None
             input_detection_image = detection_image
-        elif 'forced' in cat_type:
-            #pdb.set_trace()
+        elif cat_type == "forced_det":
             input_detection_image  = forced_detection_image
         else:
             input_detection_image  = detection_image
@@ -498,21 +445,20 @@ class SourceCatalogStep(RomanStep):
             cat_type=cat_type,
             ee_spline=ee_spline,
         )
-        #pdb.set_trace()
         prompt_cat = prompt_catobj.catalog
+        detection_image_catobj = prompt_catobj
 
         # Forced psf catalog
         # check to see if the forced_photometry variable is set if so set the flags so that the
         # psf position and FWHM are fixed
-        #pdb.set_trace()
-        if self.forced_photometry:
+        if is_forced_photometry:
             cat_type = 'forced_photometry'
             model.meta.x_0_flag = False
             model.meta.y_0_flag = False
             model.meta.fwhm_flag = False
 
             log.info("Creating forced postion source catalog")
-            fit_psf = self.fit_psf & (not self.forced_segmentation)  # skip when forced
+            fit_psf = self.fit_psf and (not is_forced_segmentation)  # skip when forced
             log.info(f"fit_psf={fit_psf}, cat_type={cat_type}")
             forced_catobj = RomanSourceCatalog(
                 model,
@@ -526,46 +472,13 @@ class SourceCatalogStep(RomanStep):
                 cat_type="forced_photometry",
                 ee_spline=ee_spline,
             )
-            #forced_cat = forced_catobj.catalog
 
             # merge the forced photometry and prompt catalogs
             forced_cat = forced_catobj.catalog
-            #self._save_detection_image(segmentation_model, forced_catobj)
             forced_cat.meta = None  # redundant with cat.meta
             cat = join(forced_cat, prompt_cat, keys="label", join_type="outer")
-            pdb.set_trace()
- 
-        #log.info("Creating source catalog")
 
-        if self.forced_segmentation:
-            # TODO: improve this so that the moment-based properties are
-            # not recomputed from the forced_detection_image
-            forced_detection_image = forced_segmodel.detection_image
-            #pdb.set_trace()
-            # record detection image used
-            segmentation_model["detection_image"] = forced_detection_image
-            #segmentation_model["detection_image_unit"] = 'nJy'
-            log.info("Creating source catalog for forced segmentation")
-            forced_catobj = RomanSourceCatalog(
-                model,
-                cat_model,
-                segment_img,
-                detection_image,
-                self.kernel_fwhm,
-                fit_psf=fit_psf,
-                psf_model=psf_model,
-                mask=mask,
-                cat_type="forced_det",
-                ee_spline=ee_spline,
-            )
-            forced_cat = forced_catobj.catalog
-
-        #if not self.forced_segmentation or not self.forced_photometry:
-        #pdb.set_trace()
-        if 'prompt' in cat_type:
-            #pdb.set_trace()
-            self._save_detection_image(segmentation_model, prompt_catobj)
-        elif 'det' in cat_type:
+        if cat_type == "forced_det":
             # TODO: improve this so that the moment-based properties are
             # not recomputed from the forced_detection_image
             #
@@ -574,7 +487,6 @@ class SourceCatalogStep(RomanStep):
             # deep/forcing catalog. SourceCatalogStep and MultibandCatalogStep
             # both attach this as an extra array on successful segmentation
             # products.
-            #pdb.set_trace()
             forced_catobj = RomanSourceCatalog(
                 model,
                 cat_model,
@@ -584,13 +496,13 @@ class SourceCatalogStep(RomanStep):
                 fit_psf=self.fit_psf,
                 psf_model=psf_model,
                 mask=mask,
-                cat_type="forced_full",
+                cat_type="forced_det",
                 ee_spline=ee_spline,
             )
-            #pdb.set_trace()
+            forced_cat = forced_catobj.catalog
+            detection_image_catobj = forced_catobj
 
             # reset the model to fit the psf  parameters
-            self.forced_photometry = ''
             model.meta.x_0_flag = False
             model.meta.y_0_flag = False
             model.meta.fwhm_flag = False
@@ -609,30 +521,19 @@ class SourceCatalogStep(RomanStep):
             )
             floating_cat = floating_catobj.catalog
             forced_cat.meta = None  # redundant with cat.meta
-            pdb.set_trace()
             cat = join(floating_cat, forced_cat, keys="label", join_type="outer")
 
         # Put the resulting catalog table in the catalog model
-        #pdb.set_trace()
         if cat_type == "prompt" :
             cat_model.source_catalog = prompt_cat
-        elif "forced" in cat_type:
+        elif cat_type in ("forced_det", "forced_photometry"):
             cat_model.source_catalog = cat
 
         log.info("Saving detection image")
-        #pdb.set_trace()
-        #self._save_detection_image(segmentation_model, prompt_catobj)
-        #prompt_cat.meta = None  # redundant with cat.meta
-        #cat = join(forced_cat, cat, keys="label", join_type="outer")
-
-        # Put the resulting catalog table in the catalog model
-        #cat_model.source_catalog = cat
 
         # Set the data and detection image
-        #pdb.set_trace()
         segmentation_model.data = segment_img.data.astype(np.uint32)
-        segmentation_model.detection_image = segmentation_model.detection_image[:]
-        self._save_detection_image(segmentation_model, prompt_catobj)
+        self._save_detection_image(segmentation_model, detection_image_catobj)
         self._attach_skyvals_if_enabled(input_model, segmentation_model, mask)
         # we update the input_model here to note that source_catalog finished
         # only for ImageModel as L3 doesn't have cal_step.source_catalog
@@ -640,11 +541,9 @@ class SourceCatalogStep(RomanStep):
         if isinstance(input_model, datamodels.ImageModel):
             self.finalize_result(input_model, self._reference_files_used)
             input_model.meta.cal_step.source_catalog = "COMPLETE"
-        #pdb.set_trace()
         return cat_model, segmentation_model
 
     def _make_catalog_and_segmentation_models(self, model):
-        #pdb.set_trace()
         if isinstance(model, ImageModel):
             if self.forced_segmentation:
                 cat_model_cls = datamodels.ForcedImageSourceCatalogModel
@@ -654,7 +553,6 @@ class SourceCatalogStep(RomanStep):
                 cat_model_cls = datamodels.ImageSourceCatalogModel
             segmentation_model_cls = datamodels.SegmentationMapModel
         else:
-            #if (self.forced_segmentation or self.forced_photometry):
             if self.forced_segmentation:
                 cat_model_cls = datamodels.ForcedMosaicSourceCatalogModel
             else:
@@ -662,7 +560,6 @@ class SourceCatalogStep(RomanStep):
             segmentation_model_cls = datamodels.MosaicSegmentationMapModel
 
         cat_model = cat_model_cls.create_minimal({"meta": model.meta})
-        #pdb.set_trace()
         cat_model.meta["image"] = {
             "filename": model.meta.filename,
             "file_date": model.meta.file_date,
@@ -672,8 +569,6 @@ class SourceCatalogStep(RomanStep):
             cat_model.meta.data_release_id = model.meta.data_release_id
 
         # make L3 metadata
-        #if (self.forced_segmentation or self.forced_photometry):
-        #pdb.set_trace()
         if self.forced_segmentation:
             cat_model.meta.image.forced_segmentation = self.forced_segmentation
 
@@ -681,7 +576,6 @@ class SourceCatalogStep(RomanStep):
             {"meta": cat_model.meta}
         )
 
-        #pdb.set_trace()
         return cat_model, segmentation_model
 
     def _attach_skyvals_if_enabled(self, input_model, segmentation_model, mask):
